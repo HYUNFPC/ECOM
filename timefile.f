@@ -26,7 +26,7 @@
       use arrays, only: nt2, kcheb, nsub, iecom, itrinity
       use arrays, only: fiter, ftime, fout
       use arrays, only: fiter1, fiter2, fiter3,fiter4,fiter5
-      use arrays, only: fiter6,fiter7,fiter22
+      use arrays, only: fiter6,fiter7,fiter22,fiter8
   
       character(3) ko, ns
       character(4) nt
@@ -35,7 +35,7 @@
       fiter =19
       fout  =20
       fiter1=11;fiter2=12;fiter3=13;fiter4=14
-      fiter5=15;fiter6=16;fiter22=22
+      fiter5=15;fiter6=16;fiter8=28;fiter22=22
       write (nt,'(i4.4)') nt2
       write (ko,'(i3.3)') kcheb
       write (ns,'(i3.3)') nsub
@@ -44,7 +44,7 @@
       open(fiter, file='iter_nt'//nt//'_ko'//ko
      $     //'_nsub'//ns//'.out')
       open(fout, file='ecom.out')
-
+      open(fiter8,file='unit_disk_iter.out',status='unknown')
       if (iecom.ne.0) then
          open(fiter1,file='fpol1.out')
          open(fiter2,file='fpol2.out')
@@ -65,11 +65,12 @@
 
       use arrays, only: fiter, ftime, fout
       use arrays, only: fiter1, fiter2, fiter3,fiter4,fiter5
-      use arrays, only: fiter6,fiter7,fiter22
+      use arrays, only: fiter6,fiter7,fiter22,fiter8
      
       close(ftime)
       close(fiter)
       close(fout)
+      close(fiter8)
       if (iecom.ne.0) then
          close(fiter1)
          close(fiter2)
@@ -77,6 +78,7 @@
          close(fiter4)
          close(fiter5)
          close(fiter6)
+
       end if
 
       if (itrinity.ne.0) then

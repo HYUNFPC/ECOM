@@ -37,6 +37,9 @@
       use arrays, only: shatlocal1,shatlocal2,shatlocal3
       use arrays, only: cvdrift,cvdrift0, dpsidrho, irho, ptflowch
       use arrays, only: ptfprimch, dpsiidrhoch
+      use arrays, only: jac2D, epstri, thh, nhamada, htin, hpsi, nhpsi!junhyuk
+      use arrays, only: ihamada, thh_1d, itotalpi !wonjun
+      use arrays, only: iboozer,nflux,thf,ftin,thunif,tpsi1,tpsi2 ! jiheon
 
       implicit double precision(a-h, o-z)
 
@@ -129,14 +132,58 @@ c      real *8 psiex(ntot)
       real *8 chcoeff0(ncon0),chcoeff1(ncon0),chcoeff2(ncon0)
       real *8 chcoeff3(ncon0),chcoeff4(ncon0),chcoeff5(ncon0)
       real *8 chcoeff6(ncon0),chcoeff7(ncon0),chcoeff8(ncon0)
+      real *8 chcoeff9(ncon0)
+
 
       real *8 tfpolcon(ntpsi),tpcon(ntpsi), tdqdpsi(ntpsi)
       real *8 tdfdpsi(ntpsi), tdpdpsi(ntpsi), tdVdpsi(ntpsi)
       real *8 tR0mil(ntpsi),tiaspmil(ntpsi),tkappamil(ntpsi)
       real *8 tdeltamil(ntpsi), tVol(ntpsi), tshatmil(ntpsi)
-      real *8 talphamil(ntpsi), tqmil(ntpsi)
-      real *8 tdR0mil(ntpsi),tdkappamil(ntpsi)
+      real *8 talphamil(ntpsi), tqmil(ntpsi), tArea(ntpsi)
+      real *8 tdR0mil(ntpsi),tdkappamil(ntpsi),tgradrho2(ntpsi)
       real *8 tddeltamil(ntpsi)
+
+      real *8 chcoefft(ncon0) !junhyuk
+      real *8 psiichsub(kcheb), tpmid(ntpsi+1), tpch(kcheb*ntpsi) 
+      real *8 ttmid(nttin+1), ttch(nttin*kcheb)
+      real *8 Jch2(ntpsi*kcheb,nttin*kcheb), Jch3(nhpsi,nhamada*kcheb)
+      real *8 Js(nhpsi,nhamada), Js2(nhpsi,nhamada*kcheb)
+      real *8 thtemp(ksamp2+1), trtemp(nttin*kcheb)
+      real *8 spbxt(kcheb*kcheb), spxbt(kcheb*kcheb)
+      real *8 spdeft(kcheb), cftmsub(kcheb*kcheb)
+      real *8 Jint2(ntpsi,nttin),Jint1(ntpsi,nttin*kcheb)
+      real *8 Jch22(ntpsi*kcheb,nttin*kcheb),ttch2(nhamada*kcheb)
+      real *8 Jch(ntpsi*kcheb,ksamp2+1),Jsint(nhpsi,nhamada+1)
+      real *8 Jtotal,Jtemp1,Jtemp2,Jtemp3,ja,ja1,ja2,ja3,jeps
+      real *8 dthhdth(nhpsi,nhamada),psidott(nttin*ntpsi)
+      real *8 tdott(nttin*ntpsi)
+      integer *4 ij1, ij2, ij3
+
+      !!! wonjun
+      real *8 dchidth_hamada(nhamada*ntpsi)
+      real *8 dchidpsi_hamada(nhamada*ntpsi)
+      real *8 dthdR_hamada(nhamada*ntpsi),dthdZ_hamada(nhamada*ntpsi) 
+      real *8 dpsidR_hamada(nhamada*ntpsi),dpsidZ_hamada(nhamada*ntpsi)
+      real *8 R_hamada(nhamada*ntpsi), Z_hamada(nhamada*ntpsi)
+      real *8 psidott_hamada(nhamada*ntpsi)
+      integer :: n_points,idx1,idx2
+
+      !!! Jiheon
+      real *8 sRtrin_temp(nttin),Rh_temp(nflux*kcheb)
+      real *8 R_flux(ntpsi,nflux*kcheb),ttch3(nflux*kcheb)
+      real *8 Jch4(ntpsi,nflux*kcheb),sRtrin_temp2(nttin+1)
+      real *8 B2cov(ntpsi,nflux+1)
+      real *8 dchidth_flux(nflux*ntpsi)
+      real *8 dchidpsi_flux(nflux*ntpsi)
+      real *8 dthdR_flux(nflux*ntpsi),dthdZ_flux(nflux*ntpsi) 
+      real *8 dpsidR_flux(nflux*ntpsi),dpsidZ_flux(nflux*ntpsi)
+      real *8 R_flux2(nflux*ntpsi), Z_flux2(nflux*ntpsi)
+      real *8 psidott_flux(nflux*ntpsi)
+      real *8 FFTwodd(ntpsi,nflux),FFTweven(ntpsi,nflux)
+      real *8 thetab(ntpsi*(nflux+1)) ! theta_boozer
+      real *8 diffzetab(ntpsi*(nflux+1)) ! zeta_boozer - zeta
+      real *8 ibz(ntpsi),gbz(ntpsi)
+
 
       integer *4 icon(ncon0),itcon(ntpsi)
       complex *16 ima
@@ -166,7 +213,6 @@ c      real *8 psiex(ntot)
      2        ,tmaxp,psiRcon,psiZcon,psiconex,psiRconex,psiZconex
      3        ,Rmido, Rmidi)      
 
-    
          write(*,*) 'contour finished'
 
          call calfint(ncon,psicon,Rcon,Zcon,tmaxp,icon
@@ -318,10 +364,27 @@ c         write(*,*) 'fpolcon',fpolcon(1:ncon)
 c         ncon=npsi-2
 c         psicon(1:ncon)=psiEF(3:npsi)
 c         qpsiconex(1:ncon)=qpsiEF(3:npsi)
+
       
          call findcontour(ncon,psicon,nr,nt2,rnd,tnd,psii,dpsidr,dpsidrr
      1        ,rndcon,tcon,urcon,utcon)
-    
+      
+
+
+      ! open(iiii, file='contour_disk_EFIT.out',status='unknown') !, status='new')
+      ! itotc = 2
+      ! ! do k=1, ncon
+      ! !   do j=1, nt2
+      ! !         itotc=itotc+1
+      !         write(iiii,*) rnd(itotc)
+      !         write(iiii,*) tnd(itotc) 
+      ! !        write(iiii,*) psii(k)
+      ! !   end do
+      ! ! end do
+      ! close(iiii)
+
+      
+      
          call sortcontour(ncon,psicon,zk,dzdw2k,rndcon
      1        ,tcon,urcon,utcon,Rcon,Zcon,icon,Ravg,Zavg
      2        ,tmaxp,psiRcon,psiZcon,psiconex,psiRconex,psiZconex
@@ -361,7 +424,26 @@ c      write(*,*) 'qcon',qcon(1:ncon)
       call findrhoch(ncon,Rmido, Rmidi)
 
       if (itrinity.eq.1) then 
-         call findtpsifromtrho(ncon)
+         ! set tpsi for trinity modes
+         if (itotalpi.ne.0) then
+            teps=1.0d-14
+            do i=2,ntpsi-1
+            tpsi(i)=1.0d0-dble(i-1)/dble(ntpsi-1)
+            end do
+            tpsi(1)=1.0d0-teps
+            tpsi(ntpsi)=teps
+         elseif (ihamada.eq.1) then
+            do i=1,ntpsi
+            tpsi(i)=1.0d0-((tpsi2-tpsi1)/(ntpsi-1)*dble(i-1)+tpsi1)
+            end do
+         elseif (iboozer.eq.1) then
+
+         else
+            write(*,*) 'findtpsifromtrho'
+            call findtpsifromtrho(ncon)
+         end if
+
+         write(*,*) 'tpsi',tpsi(1:ntpsi)
          call findcontour2der(ntpsi,tpsi,nr,nt2,rnd,tnd,psii
      1        ,dpsidr,dpsidrr,trnd,ttnd,tur,tut
      2        ,turr,turt,tutt)
@@ -372,7 +454,7 @@ c      write(*,*) 'qcon',qcon(1:ncon)
             tpsireal(1:ntpsi)=tpsi(1:ntpsi)
          end if
          
-         call sortcontour2der (ntpsi,tpsireal,zk,dzdw2k,dzdww2k
+         call sortcontour2der(ntpsi,tpsireal,zk,dzdw2k,dzdww2k
      1        ,trnd,ttnd,tur,tut,turr,turt,tutt ,tRcon,tZcon,itcon
      2        ,tRavg,tZavg,ttmaxp,psiRtcon,psiZtcon,psiRRtcon
      3        ,psiRZtcon,psiZZtcon,psitconex,psiRtconex,psiZtconex
@@ -424,7 +506,6 @@ c      write(*,*) 'qcon',qcon(1:ncon)
          end if                 !iptype=0
          
       end if                    !itrinity=1
-
 
       call scalesol(lambda, psiB, psi)
       call calDer(psiR, psiZ, psiRR, psiRZ, psiZZ)
@@ -505,7 +586,6 @@ c     qpsich=-qpsich
          close(2)
       else if (iecom.eq.1) then !ECOMJ
          if(ijtype.ne.1) then
-           
             if (ifpol.eq.0) then
                call findFbyFFp0(ncon,lambda,psiichq,ffprimch,
      1              spbx,F0,fpolch)
@@ -603,8 +683,6 @@ c               write(*,*) 'temp1,temp2',temp1,temp2
                Btheta2(i)=dpsiidrhoch(i)**2/rmin**2/(lambda**2)/R0**2
                temp3=rhoch(i)**2*rmin**2*Btheta2(i)/2.0d0
                betatf(i)=temp1/temp3
-
-
                betaP(i)=temp2/temp3
             end do
        
@@ -678,9 +756,14 @@ c      write(*,*) 'Id',Id(1:ncon)
 
       if (ifitMil.eq.1) then
          epsFIT = 1.0d-13
+         write(*,*)'==Ravg',Ravg(1:ncon)
+         write(*,*)'==Zavg',Zavg(1:ncon)
          call fitMiller(ncon,icon,Rcon,Zcon,Ravg,Zavg
      1        ,epsFIT,R0mil,iaspmil,kappamil,deltamil)
-
+         ! write(*,*)'==R0mil',R0mil(1:ncon)
+         ! write(*,*)'==iaspmil',iaspmil(1:ncon)
+         ! write(*,*)'==kappamil',kappamil(1:ncon)
+         ! write(*,*)'==deltamil',deltamil(1:ncon)
          call printMiller(ncon,psicon,R0mil,iaspmil
      1        ,kappamil,deltamil, Ib)
       end if
@@ -691,13 +774,100 @@ c         call sortcontour(ntpsi,tpsi,zk,dzdw2k,trnd
 c     1        ,ttnd,tur,tut,tRcon,tZcon,itcon,tRavg,tZavg
 c     2        ,ttmaxp,psiRtcon,psiZtcon,psitconex,psiRtconex,psiZtconex
 c     3        ,tRmido, tRmidi)
-         write(*,*) 'contour finished for trinity'
+c         write(*,*) 'contour finished for trinity'
 c         write(*,*) 'psiRZtcon',psiRztcon(1:ntpsi*ksamp2)
 c         write(*,*) 'psiRZtcon',ntpsi,ncon
 
          call calmetric0(ncon,psicon,Rcon,Zcon,tmaxp,icon
      1        ,psiRcon,psiZcon, fpolch
      2     ,nttin,ttin, btotch,alphapsi0ch,alphatheta0ch)  ! chebyshev psii grid
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         !!!!!!!! junhyuk  !!!!!!!!!!!!!
+
+     
+
+         !call getVolume(Jint2)
+
+ !junhyuk
+!       call chsetupq(kcheb, psiichsub, cftmsub, spbxt, spxbt, spdeft)
+            
+! !      write(*,*) 'psiichsub', psiichsub(1:kcheb) !make Jacobian odd, even
+
+!       do k=1,nttin-1
+!          ttmid(k) = (ttin(k)+ttin(k+1))/2.0d0 ! make theta(mid) 
+!       end do
+!       ttmid(nttin)=(ttin(1)+2.0d0*pi+ttin(nttin))/2
+!       ttmid(nttin+1)=ttmid(1)+2.0d0*pi
+!       ! write(*,*) 'ttmid', ttmid(1:nttin+1)
+
+!       ! write(*,*) 'tpsi', tpsi(1:ntpsi)    !  make psi(mid)
+!       do k=1,ntpsi-1
+!          tpmid(k+1)=(tpsi(k)+tpsi(k+1))/2.0d0
+!       end do
+!       tpmid(1)=tpsi(1)
+!       tpmid(ntpsi+1)=tpsi(ntpsi)
+!       ! write(*,*) 'tpmid', tpmid(1:ntpsi+1)
+
+
+!       do j=1,ntpsi
+!          do i=1,kcheb
+!             ja=tpmid(j)-tpmid(j+1)
+!             tpch((j-1)*kcheb+i)=tpmid(j+1)+ja*psiichsub(i) ! psi(ch)
+!          end do
+!       end do
+!       ! write(*,*) 'tpch', tpch(1:kcheb*ntpsi)
+
+
+!       do j=1,nttin
+!          do i=1,kcheb
+!             ja = ttmid(j+1)-ttmid(j)
+!             trtemp((j-1)*kcheb+i)=ttmid(j)+ja*(1-psiichsub(i)) !ttch at 2pi/(nttin*2) ~ 2pi+//
+!          end do
+!       end do
+!       ij1=kcheb*nttin
+!       do k=1,ij1-kcheb/2
+!          ttch(k+kcheb/2)=trtemp(k)
+!       end do
+!       do k=1,kcheb/2
+!          ttch(k)=trtemp(ij1-kcheb/2+k) - 2.0d0*pi
+!       end do
+!       ! write(*,*) 'ttch', ttch(1:nttin*kcheb)
+
+!       call caljac(ntpsi*kcheb, nttin*kcheb, tpch, ttch, Jch2)
+
+!       Jch22=Jch2
+!       do i=1,kcheb*nttin-kcheb/2
+!          Jch2(:,i+kcheb/2)=Jch22(:,i)
+!       end do
+!       do i=1,kcheb/2
+!          Jch2(:,i)=Jch22(:,ij1-kcheb/2+i)
+!       end do
+
+!       Jtotal=0.0d0
+
+!       do l=1,nttin !nttin
+!          do k=1,ntpsi !ntpsi
+!             Jtemp2=0.0d0
+!             do j=1, kcheb !theta kcheb
+!                Jtemp1=0.0d0
+!                do i=1, kcheb !psi kcheb
+!                   Jtemp1=Jtemp1+spdeft(i)*Jch2(kcheb*(k-1)+i
+!      1  ,kcheb*(l-1)+j)
+!                end do
+!                Jtemp1=Jtemp1*(tpmid(k)-tpmid(k+1))
+!                Jint1(k,kcheb*(l-1)+j)=Jtemp1/2.0d0
+!                Jtemp2=Jtemp2+spdeft(j)*Jint1(k,kcheb*(l-1)+j)
+!             end do
+!             Jtemp2=jtemp2*2.0d0*pi/dble(nttin)
+!             Jint2(k,l)=Jtemp2*pi
+!             Jtotal=Jtotal+Jint2(k,l)
+!          end do
+!       end do
+
+
+
+         !!!!!!!! junhyuk  !!!!!!!!!!!!!
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 c         write(*,*) 'btotch',btotch(1:ncon*nttin)
 c         write(*,*) 'alphapsi0ch',alphapsi0ch(1:ncon*nttin)
@@ -712,7 +882,11 @@ c         write(*,*) 'alphatheta0ch',alphatheta0ch(1:ncon*nttin)
          call chftransq(chcoeff6, iaspmil, ncon, cftmq)
          call chftransq(chcoeff7, kappamil, ncon, cftmq)
          call chftransq(chcoeff8, deltamil, ncon, cftmq)
- 
+         call chftransq(chcoeff9, Lp(1:ncon)*R0mil(1:ncon)*2.0d0*pi
+     1     ,ncon,cftmq)
+         ! write(*,*) '===correct1', Lp(1:ncon)
+         ! write(*,*) '===correct2', R0mil(1:ncon)
+         ! write(*,*) '===correct3', kappamil(1:ncon)
 c         write(*,*) 'fpolch',fpolch(1:ncon),presch(1:ncon)
 c         write(*,*) 'fpolch2',chcoeff1(1:ncon),chcoeff2(1:ncon)
      
@@ -725,6 +899,7 @@ c            call chfit(1.0d0-tpsi(i),ncon,chcoeff0,trho(i))
             call chfit(1.0d0-tpsi(i),ncon,chcoeff6,tiaspmil(i))
             call chfit(1.0d0-tpsi(i),ncon,chcoeff7,tkappamil(i))
             call chfit(1.0d0-tpsi(i),ncon,chcoeff8,tdeltamil(i))
+            call chfit(1.0d0-tpsi(i),ncon,chcoeff9,tArea(i))
 
             call chderiv(1.0d0-tpsi(i),ncon,chcoeff0,drhodpsii)
             dpsidrho(i)=1.0d0/drhodpsii/lambda !used non-normalized psi
@@ -768,7 +943,8 @@ c         write(*,*) 'dpsidrho2',dpsidrho(1:ntpsi)*lambda
 c         write(*,*) 'tdfdpsi',tdfdpsi(1:ntpsi),tfpolcon(1:ntpsi)
 c         write(*,*) 'tdpdpsi',tdpdpsi(1:ntpsi),tpcon(1:ntpsi)
 c         write(*,*) 'plmvol',plmvol(1:ncon),chcoeff3(1:ncon)
-         
+      ! write(*,*) '===correct4', tArea(1:ntpsi)
+      ! write(*,*) '===correct5', tkappamil(1:ntpsi)
 
          do j=1,nttin
             call chftransq(chcoeff3, btotch((j-1)*ncon+1), ncon, cftmq)
@@ -791,13 +967,276 @@ c         write(*,*) 'dbtotdpsi',dbtotdpsi(1:ntpsi*nttin)
 c         write(*,*) 'dalphapsi0ch',dalphadpsi0(1:ntpsi*nttin)
 c         write(*,*) 'dalphapsidt0',ddalphadpsidt0(1:ntpsi*nttin)
 
+
+
+
+
+     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+     !!!!!!!!   wonjun  jiheon  !!!!!!!!!!!!
+
+      if (ihamada .eq. 1) then
+
+         open(sol_unit, file='psiRZcon.out') !, status='new')
+         do i=1,ksamp2*ntpsi
+            write (sol_unit, *) tRcon(i),tZcon(i)
+     1         ,psiRtcon(i)/lambda,psiZtcon(i)/lambda
+         end do
+         close(sol_unit)
+
+         call hamada_theta(tpsi,thh,ntpsi,nhamada,dthhdth)
+            ! calmetric at tpsi and ttin (uniform theta), output : thh
+
+
+         call hamada_metric(ntpsi,tpsi,tRcon,tZcon,ttmaxp,itcon,psiRtcon
+     1        ,psiZtcon,tfpolcon,tdfdpsi,tdpdpsi,dbtotdpsi,dalphadpsi0
+     2        ,nttin,ttin,dthhdth,gradpar,Rtrin,Ztrin,bpR,btot,bpol
+     3        ,gbdrift,gbdrift0,cvdrift,cvdrift0,shatlocal1,dalphatt
+     4        ,nhamada,thh,dchidth_hamada,dchidpsi_hamada
+     5        ,dthdR_hamada,dthdZ_hamada,dpsidR_hamada,dpsidZ_hamada
+     6        ,R_hamada,Z_hamada,psidott_hamada)
+
+
+         ! ! add input calmetic for hamada theta
+         ! ! interpolate output values at the hamada theta
+         ! do i=1,ntpsi
+         !    !write (*,*) 'thh', thh(i,:)
+         !    idx1 = (i-1)*(nhamada+1)+1
+         !    idx2 = i*(nhamada+1)
+         !    thh_1d(idx1:idx2) = thh(i,:)
+         ! end do
+         ! n_points = ntpsi*(nhamada+1)
+         ! open(sol_unit, file='htheta.out') !, status='new')
+         ! do i=1,n_points
+         !    write (sol_unit, *) thh_1d(i)
+         ! end do
+         ! close(sol_unit)
+         ! open(sol_unit, file='hpsi.out') !, status='new')
+         ! do i=1,ntpsi
+         !    write (sol_unit, *) tpsi(i)
+         ! end do
+         ! close(sol_unit)
+            
+         ! open(sol_unit, file='q_profile.out') !, status='new')
+         ! do i=1,ntpsi
+         !    write (sol_unit, *) tqmil(i)  ! q-profile
+         ! end do
+         ! close(sol_unit)
+         ! open(sol_unit, file='dVdpsi.out') !, status='new')
+         ! do i=1,ntpsi
+         !    write (sol_unit, *) tdvdpsi(i)  ! dV/dpsi
+         ! end do
+         ! close(sol_unit)
+
+         ! n_points = ntpsi*nhamada
+            
+         ! open(sol_unit, file='grad_theta.out') !, status='new')
+         ! do i=1,n_points
+         !    write (sol_unit, *) dthdR_hamada(i),dthdZ_hamada(i)
+         ! end do
+         ! close(sol_unit)
+         ! open(sol_unit, file='grad_psi.out') !, status='new')
+         ! do i=1,n_points
+         !    write (sol_unit, *) dpsidR_hamada(i),dpsidZ_hamada(i)
+         ! end do
+         ! close(sol_unit)
+         ! open(sol_unit, file='RZ_hamada.out') !, status='new')
+         ! do i=1,n_points
+         !    write (sol_unit, *) R_hamada(i),Z_hamada(i)
+         ! end do
+         ! close(sol_unit)
+         ! open(sol_unit, file='grad_chi.out') !, status='new')
+         ! do i=1,n_points
+         !    write (sol_unit, *) dchidth_hamada(i),dchidpsi_hamada(i)
+         ! end do
+         ! close(sol_unit)
+         ! open(sol_unit, file='psidott.out') !, status='new')
+         ! do i=1,n_points
+         !    write (sol_unit, *) psidott_hamada(i)
+         ! end do
+         ! close(sol_unit)
+
+	   elseif (iboozer .eq. 1) then
+	  ! made by jiheon
+         ! here. calmetric is not needed for iboozer=1 case.
+         ! but... maybe? not calling this func can make error in others...?
+         call calmetric(ntpsi,tpsi,tRcon,tZcon,ttmaxp,itcon,psiRtcon
+     1        ,psiZtcon,tfpolcon,tdfdpsi,tdpdpsi,dbtotdpsi,dalphadpsi0
+     2        ,nttin,ttin,gradpar,Rtrin,Ztrin,bpR,btot,bpol,gbdrift
+     3        ,gbdrift0,cvdrift,cvdrift0,shatlocal1,dalphatt,phitrin
+     4        ,psidott,tdott,tgradrho2)
+
+         call calRflux(tRcon,ttch3,R_flux)
+            
+	      call caljac(ntpsi, nflux*kcheb, tpsi, ttch3, Jch4)
+	      ! Jch4 and R_flux is ready to go.
+
+! part 1. get theta_flux
+
+         call flux_theta(tpsi,thf,ntpsi,nflux,Jch4,R_flux,tqmil,
+     1           tfpolcon) 
+      ! thf is output , global_variable.
+
+! part 2. get B of flux coordi
+         !! get theta which makes uniform interval in theta_flux
+
+         call get_flux_theta_grid_v2(ntpsi,nflux,thf,thunif,
+     1         FFTwodd,FFTweven)
+
+         !! get dpsidR,dpsidZ,dthetadR,dthetadZ at thunif
+
+         call boozer_metric(tRcon,tZcon,psiRtcon,psiZtcon,thunif,
+     1   R_flux2,Z_flux2,dthdR_flux,dthdZ_flux,
+     2   dpsidR_flux,dpsidZ_flux)
+
+   !! get covariant_B in theta_flux_grid
+	      call get_covariant_B(ntpsi,nflux,thf,thunif,B2cov,
+     1      dpsidR_flux,dpsidZ_flux,dthdR_flux,dthdZ_flux,
+     2      R_flux2,Z_flux2,FFTwodd,FFTweven)
+ 
+! part 3. get theta_b (temp... fourier-cubic spline...)
+         call get_theta_boozer(ntpsi,nflux,thf,thunif,B2cov,
+     1  thetab,diffzetab,tqmil,tfpolcon,FFTwodd,FFTweven,Ibz,gbz)
+
+! part 4. save output for fourier-cubic spline(at P1ICP).
+
+! for test P1ICP interpolation OUTPUT.
+!        call get_circular_coordi_output1(tRcon,tZcon) 
+
+         open(sol_unit, file='ECOM_Boozer.out') !, status='new')
+         write(sol_unit, *) 'tRcon'
+         do i=1,ksamp2*ntpsi
+            write (sol_unit, *) tRcon(i)
+         end do
+         write(sol_unit, *) 'tZcon'
+         do i=1,ksamp2*ntpsi
+            write (sol_unit, *) tZcon(i)
+         end do
+         write(sol_unit, *) 'fixtpsi'
+         do i=1,ntpsi
+            write (sol_unit, *) (1.0d0-tpsi(i))
+         end do
+
+         !!!! temporary solution..for get boundary PSI line
+         tpsi(ntpsi)=0.0d0 ! for boundary PSI contour
+
+   !          call findcontour2der(ntpsi,tpsi,nr,nt2,rnd,tnd,psii
+   !   1        ,dpsidr,dpsidrr,trnd,ttnd,tur,tut
+   !   2        ,turr,turt,tutt)
+
+   !          if (iptype.eq.0) then  !Solovev solutions
+   !             tpsireal(1:ntpsi)=tpsi(1:ntpsi)/lambda +psiB
+   !          else
+   !             tpsireal(1:ntpsi)=tpsi(1:ntpsi)
+   !          end if
+
+   !       call sortcontour2der (ntpsi,tpsireal,zk,dzdw2k,dzdww2k
+   !   1        ,trnd,ttnd,tur,tut,turr,turt,tutt ,tRcon,tZcon,itcon
+   !   2        ,tRavg,tZavg,ttmaxp,psiRtcon,psiZtcon,psiRRtcon
+   !   3        ,psiRZtcon,psiZZtcon,psitconex,psiRtconex,psiZtconex
+   !   4        ,psiRRtconex,psiRZtconex,psiZZtconex,tRmido,tRmidi)
+
+!!!!!!!! temp..for get boundary PSI line end !!!!!!!!!!
+
+
+! for test P1ICP interpolation OUTPUT.
+!        call get_circular_coordi_output2(tRcon,tZcon,thetab 
+!     1       ,tqmil,Rmaxis,Zmaxis,lambda)                  
+!                  diffzetab=0.0d0   
+
+            write(sol_unit, *) 'tR0con'
+            do i=1,ksamp2
+            write (sol_unit, *) tRcon((ntpsi-1)*ksamp2+i)
+            end do
+
+            write(sol_unit, *) 'tZ0con'
+            do i=1,ksamp2
+            write (sol_unit, *) tZcon((ntpsi-1)*ksamp2+i)
+            end do
+
+            write(sol_unit, *) "theta_boozer"
+            do i=1,ntpsi*(nflux+1)
+            write (sol_unit, *) thetab(i)
+            end do
+
+            write(sol_unit, *) 'zetab-zeta'
+            do i=1,ntpsi*(nflux+1)
+            write (sol_unit, *) diffzetab(i)
+            end do
+
+            write(sol_unit, *) 'q_profile'
+            do i=1,ntpsi
+            write (sol_unit, *) tqmil(i)
+            end do
+
+            write(sol_unit, *) 'Mag axis R0'
+            write (sol_unit, *) Rmaxis
+            write(sol_unit, *) 'Mag axis Z0'
+            write (sol_unit, *) Zmaxis
+            write(sol_unit, *) "lambda"
+            write (sol_unit, *) -lambda  ! 1.0-tpsi for P1ICP
+            write(sol_unit, *) "tpsi1"
+            write (sol_unit, *) tpsi1
+            write(sol_unit, *) "tpsi2"
+            write (sol_unit, *) tpsi2
+
+            write(sol_unit, *) "I_b"
+            do i=1,ntpsi
+            write (sol_unit, *) ibz(i)
+            end do
+
+            write(sol_unit, *) "g_b"
+            do i=1,ntpsi
+            write (sol_unit, *) gbz(i)		! I,g added for Efieldtype=7 - alfven..
+            end do
+
+            write(sol_unit, *) "Reading_input_ECOM_file_success!"
+            close(sol_unit)
+
+        !! iboozer case end.
+         !!!!!!!!   wonjun  jiheon  !!!!!!!!!!!!
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      else
          write(*,*) 'calculate local mertics for trinity'
          call calmetric(ntpsi,tpsi,tRcon,tZcon,ttmaxp,itcon,psiRtcon
      1        ,psiZtcon,tfpolcon,tdfdpsi,tdpdpsi,dbtotdpsi,dalphadpsi0
      2        ,nttin,ttin,gradpar,Rtrin,Ztrin,bpR,btot,bpol,gbdrift
-     3        ,gbdrift0,cvdrift,cvdrift0,shatlocal1,dalphatt,phitrin)
+     3        ,gbdrift0,cvdrift,cvdrift0,shatlocal1,dalphatt,phitrin
+     4        ,psidott,tdott,tgradrho2)
+      end if
+      !write(*,*) 'hello Rtrin af', Rtrin((ntpsi-1)*nttin+1:ntpsi*nttin)
+         ! open(68,file='RZpsiR')
+         ! do i=1,nchq
+         !    write(68,*) Rcon((i-1)*ksamp2+1:i*ksamp2)
+         ! end do
+         ! do i=1,nchq
+         !    write(68,*) Zcon((i-1)*ksamp2+1:i*ksamp2)
+         ! end do
+         ! do i=1,nchq
+         !    write(68,*) psiRcon((i-1)*ksamp2+1:i*ksamp2)
+         ! end do
+         ! close(68)
 
+         ! open(68,file='RZpsiRt')
+         ! do i=1,ntpsi
+         !  write(68,*) tRcon((i-1)*ksamp2+1:i*ksamp2)
+         ! end do
+         ! do i=1,ntpsi
+         !    write(68,*) tZcon((i-1)*ksamp2+1:i*ksamp2)
+         ! end do
+         ! do i=1,ntpsi
+         !    write(68,*) psiRtcon((i-1)*ksamp2+1:i*ksamp2)
+         ! end do
+         ! close(68)       
 
+      
+         open(sol_unit, file='bpr.out') !, status='new')
+         do i=1,ntpsi
+            !do j=1,nttin
+            write (sol_unit, *) Rtrin((i-1)*nttin+1),
+     1       Ztrin((i-1)*nttin+1),bpr((i-1)*nttin+1)
+            !end do
+         end do
+         close(sol_unit)
 
          gdpsi_av=0.0d0
          do i=1,ntpsi
@@ -1076,7 +1515,7 @@ c     1        ,tkappamil,tdeltamil,file_name)
             close(fogyro)
          end if
 
-      end if
+      end if !end itrinity
 
       write(*,*) 'finished finding physical quantities'
      
@@ -1087,14 +1526,11 @@ c     1        ,tkappamil,tdeltamil,file_name)
          call quaplot2(iw,Rt1,Zt1,nt1,itype3,Rt3,Zt3,nr*nt2,itype2,
      1       'image of uniform polar grid under inverse map*')
       end if
-
-      
-     
+ 
       if (iprintsoldisk.eq.1) then
          call printSolDisk(psi)
       end if
   
-
       if (iprintsol.eq.1) then
          select case (iptype)
          case (0,3)               !If there are exact solutions or EFIT solutions
@@ -1135,6 +1571,18 @@ c     1        ,tkappamil,tdeltamil,file_name)
 c printEfitG (npsi,ncon,cftmq,pprimch,ffprimch,presch,fpolch
 c     1     ,qcon)
          Write(*,*) 'finished printing gfile for EFIT output format'
+      end if
+
+      if (itotalpi.ge.1) then
+         select case(itotalpi)
+         case(1)
+            call writeonedtotalpi(plmvol0,tvol,Ledge*2.0d0*R0,tarea,
+     1       tdvdpsi,tqmil,tkappamil,tdeltamil,tshatmil,tgradrho2)
+         case(2)
+            call writetwodtotalpi(tfpolcon,BpR,
+     1       psidott,tdott)
+         end select
+         write(*,*) 'finished printing totalpi input file'
       end if
 
       return
@@ -1201,7 +1649,6 @@ c     1     ,qcon)
       real *8 dZdtmido(ncon0), dZdtmidi(ncon0)
       save
 
- 
       pi = 4.0d0*datan(1.0d0)
       mu0=(4*pi*1.0d-7)
       ima = (0,1)
@@ -1942,13 +2389,14 @@ c      close(sol_unit)
      1     Zcon, psiRcon, psiZcon)
 
       use arrays, only:  nr, ntot, nt2, kcheb, nsub
+      use arrays, only: rnd, tnd, psii
       implicit double precision(a-h, o-z)
 
       real *8 rndcon(*), tcon(*), psicon(*), Rcon(*), Zcon(*),
      1   psiRcon(*), psiZcon(*)
 
       integer *4 sol_unit, ncon, icon(*)
-      integer *4 i,j, inext, ntheta, istart, iend, nin
+      integer *4 i,j,k, inext, ntheta, istart, iend, nin
 
       ntheta = nt2
       sol_unit = 10
@@ -1956,10 +2404,21 @@ c      close(sol_unit)
       open(sol_unit, file='contour_disk.out') !, status='new')
       itotc = 0
       do k=1, ncon
-         do j=1, ntheta*ksamp2
+         do j=1, nt2!ntheta*ksamp2
                itotc=itotc+1
-               write (sol_unit,*) rndcon(itotc), 
-     $           tcon(itotc), psicon(k)
+               write (sol_unit,'(3e16.9)') rndcon(itotc), 
+     1           tcon(itotc), psicon(k)
+         end do
+      end do
+      close(sol_unit)
+
+      open(sol_unit, file='unit_disk.out') !, status='new')
+      itotc = 0
+      do j=1,nt2
+         do i=1, nr
+               itotc=itotc+1
+               write (sol_unit,'(3e16.9)') rnd(i), 
+     1           tnd(j), psii(itotc)
          end do
       end do
       close(sol_unit)
@@ -2490,7 +2949,7 @@ c            end do
       real *8 Rmido(*), Rmidi(*)
       complex *16 zk(*),dzdw2k(*)
       integer *4 ncross,icon(*), im(ksamp2), jlag(2*ksamp2+2*klag)
-      integer *4 mlag(2*ksamp2+2*klag),jarr(ksamp2)
+      integer *4 mlag(2*ksamp2+2*klag),ilag(ksamp2+2*klag),jarr(ksamp2)
 
       real *8 Rconm(2*nt2*ksamp2), Zconm(2*nt2*ksamp2)
       real *8 psiRconm(2*nt2*ksamp2),psiZconm(2*nt2*ksamp2)
@@ -2523,7 +2982,7 @@ c            end do
 
       save 
 
-      kLag=8
+      !kLag=8
       ima = (0.0d0,1.0d0)
       c1 =  (1.0d0,0.0d0)
       pi = 4.0d0*datan(1.0d0)
@@ -2555,7 +3014,6 @@ c         write(*,*) 'nt2,ksamp2,m',nt2,ksamp2,m
             end if
 c            tcon(1:m)=tcon(iorgstart)+(2.0d0*pi/m)*(j-1)
          end do
-         
         
          if (isymud.eq.1) then
             call interpffte(nt2,urconc,m,urconmc,wm)
@@ -2568,7 +3026,6 @@ c            tcon(1:m)=tcon(iorgstart)+(2.0d0*pi/m)*(j-1)
          else
             tsec=real(ict-ici+ic_max)/real(icr)
          end if
-
          if (isymud.eq.1) then
             call interpffto(nt2,utconc,m,utconmc,wm)
          else
@@ -2577,14 +3034,11 @@ c            tcon(1:m)=tcon(iorgstart)+(2.0d0*pi/m)*(j-1)
          urconm(1:m)=(urconmc(1:m))
          utconm(1:m)=(utconmc(1:m))
 
-    
          if (psicon(k).lt.psicon(1)*0.2) then
             ksamp3= ksamp2
          else
             ksamp3= ksamp2
          end if
-
- 
 
          idsamp3=m/ksamp3
          do j=1, ksamp3     !initial guess of the uniform theta grid in plasma domain
@@ -2607,6 +3061,7 @@ c            tcon(1:m)=tcon(iorgstart)+(2.0d0*pi/m)*(j-1)
 c         write(*,*) "(Ravg,Zavg)=",Ravg(k),Zavg(k)
 c         write(*,*) "(Rmax,Zmax)=",Rmaxpsi,Zmaxpsi
          tmin=100.0
+         tmin2=100.0
          do j=1, ksamp3
 c            tmaxpm(j)=datan2((Zconm(j)-Zavg(k)),
 c     1           (Rconm(j)-Ravg(k)))
@@ -2619,7 +3074,52 @@ c     1           (Rconm(j)-Ravg(k)))
                tmin=tmaxpm(j)
                jtmin=j
             end if
+            if (dabs(tmaxpm(j)-pi).lt.tmin2) then
+               tmin2=dabs(tmaxpm(j)-pi)
+               jtmin2=j
+            end if
          end do
+         !write(*,*) 'tmaxpm',tmaxpm(:)
+         !write(*,*) 'Rconm',Rconm(:)
+         !write(*,*) 'jtmin',jtmin,jtmin2,Zconm(jtmin),Zconm(jtmin2)
+         !write(*,*) 'Zconm', Zconm(:)
+
+         !find outer mid-plane point and inner mid-plane point
+         !!change by lee
+         tmaxpmid(1)=0.0 !(isortstart)
+         tmaxpmid(2)=pi !isortstart)
+
+         klagl=floor(klag/2.0)
+         klagr=klag-klagl
+c         write(*,*) 'tmaxpmid',tmaxpmid
+c         write(*,*) 'tmaxp',tmaxp(1:ksamp3)
+         do j=1,klag
+            jj=modulo(jtmin-klagl-2+j,ksamp3)+1
+            Rtmp(j)=Rconm(jj)
+            Ztmp(j)=Zconm(jj)
+            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
+         end do
+         epsLag22=epsLag2
+         call IntLagAll(klag,tlagtmp,Rtmp,
+     1           tmaxpmid(1),Rmid,wlag,epsLag22, isame)
+         !write(*,*) 'tlagtmp',tlagtmp(1:klag),Rtmp(1:klag),Rmid
+         Rmido(k)=Rmid
+         !write(*,*) 'tlagtmp-o',Rmid,tlagtmp(1:klag),Ztmp(1:klag)
+         do j=1,klag
+            jj=modulo(jtmin2-klagl-2+j,ksamp3)+1
+            Rtmp(j)=Rconm(jj)
+            Ztmp(j)=Zconm(jj)
+            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
+            if (tlagtmp(j).lt.0.0d0) then
+               tlagtmp(j)=2.0d0*pi+tlagtmp(j)
+            end if
+         end do
+         call IntLagAll(klag,tlagtmp,Rtmp,
+     1           tmaxpmid(2),Rmid,wlag,epsLag22, isame)
+
+         Rmidi(k)=Rmid
+         !write(*,*) 'tlagtmp',Rmid,tlagtmp(1:klag),Ztmp(1:klag)
+
          do j=1,ksamp3
             jarr(j)=j
          end do
@@ -2651,6 +3151,7 @@ c     1           (Rconm(j)-Ravg(k)))
          klagl=floor(klag/2.0)
          klagr=klag-klagl
 
+
          eps13=1.0d-13
          do j=1, ksamp3
 c            isort(i)=isortstart+i-1
@@ -2658,15 +3159,15 @@ c            isort(i)=isortstart+i-1
             thksamp3= 2.0d0*pi/ksamp3*(j-1)+dth
             ifind = 0
             jj=0
-                        
             do while ((ifind.eq.0) .and. (jj.lt.1)) !find the theta grid which is equispaced as much as possible (not perfectly) 
                jj=jj+1
                if (jj.eq.1) then
                   do while (thksamp3.gt.tlag(istart)) 
                      istart=istart+1
                   end do
+
                   tlagtmp(1:klag)=tlag(istart-klagl:istart+klagr)
-                  mlagtmp(1:klag)=mlag(istart-klagl:istart+klagr)  !index of m
+                  mlagtmp(1:klag)=mlag(istart-klagl:istart+klagr)  !index of m                  
 
                   call IntLagAll(klag, tlagtmp, mlagtmp,
      1              thksamp3,y1,wbary,eps13,isame)
@@ -2704,7 +3205,7 @@ c                        ttry1=datan2((Ztry-Zavg(k)),(Rtry-Ravg(k)))
                         end if 
                      end if
                   end if
-               else
+               else !actually doesn't work
                   call CheckSameInt(klag,mlag(istart-klagl)
      1                   ,nint(y2),isame2)
                   if (isame2.ne.0) then
@@ -2724,7 +3225,7 @@ c                        ttry1=datan2((Ztry-Zavg(k)),(Rtry-Ravg(k)))
                mlagtmp(klag+jj)=nint(y1)
                call IntLagAdd(klag+jj, tlagtmp, mlagtmp,  
      1              thksamp3,y2,wbary,eps13,isame) 
-               
+
                itry2=modulo(nint(y2-1),m)+1
                if (itry1.eq.itry2) then
                   ifind=1
@@ -2746,8 +3247,7 @@ c                  ttry2=datan2((Ztry-Zavg(k)),(Rtry-Ravg(k)))
                   end if
                end if
             end do
-  
-           
+
             tmaxp(itotc)=ttry2
             if ((j.gt.1).and.(tmaxp(itotc-1).gt.tmaxp(itotc))) then 
                tmaxp(itotc-1)=tmaxp(itotc-1)-2.0d0*pi
@@ -2776,7 +3276,6 @@ c                  ttry2=datan2((Ztry-Zavg(k)),(Rtry-Ravg(k)))
             psiZcon(itotc)=dsqrt(Rtry)
      1              *(uxdisk*(-dwdzi)+uydisk*dwdzr)
 
-       
             select case (iptype)
             case(0)
                call Solovev(Rcon(itotc),Zcon(itotc),csol,d1,d2,d3,
@@ -2794,102 +3293,9 @@ c                  ttry2=datan2((Ztry-Zavg(k)),(Rtry-Ravg(k)))
          end if
 c        write(*,*) "CPU time sortcontour4: t(sec)= ",tsec 
 
-         !find outer mid-plane point and inner mid-plane point
-         tmaxpmid(1)=tmaxp(1) !(isortstart)
-         tmaxpmid(2)=tmaxp(ksamp3/2+1) !isortstart)
-c         write(*,*) 'tmaxpmid',tmaxpmid
-c         write(*,*) 'tmaxp',tmaxp(1:ksamp3)
-         do j=1,klag
-            jj=modulo(jtmin-klagl-2+j,m)+1
-            wcon=rndconm(jj)*exp(ima*tconm(jj))
-
-            nlimz=epslogzk/log(rndconm(jj))+1
-            if (nlimz.gt.nt2) then
-               nlimz=nt2
-            end if
-
-            call fft_cauchy(nlimz,wcon,zk,cint)
-            Rtmp(j)=cint
-            Ztmp(j)=-ima*cint
-c            tlagtmp(j)=datan2((Ztmp(j)-Zavg(k)),(Rtmp-Ravg(k)))
-            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
-         end do
-         epsLag22=epsLag2
-         call IntLagAll(klag,tlagtmp,Rtmp,
-     1           tmaxpmid(1),Rmid,wlag,epsLag22, isame)
-c         write(*,*) 'tlagtmp',tlagtmp(1:klag),Rtmp(1:klag),Rmid
-         Rmido(k)=Rmid
-         
- 
-c         dZdt= 0.0d0
-c         epsLag22=epsLag2
-c         do while (dZdt.eq.0.0d0)
-c            call IntLag_sameptsAll(klag,tlagtmp,Ztmp,
-c     1           tmaxpmid(1),Zmid(1),dZdt,epsLag22)
-c            write(*,*) 'epsLag2 is changed to ',epsLag22
-c            if (epsLag22.gt.1d-8) then
-c               write(*,*) 'no z grid in outer-midplane'
-c               if (isymud.eq.1) then
-c                  write(*,*) 'contour integrals may not be accurate'
-c                  isymud=0
-c               end if
-c               exit
-c            else if (dZdt.eq.0.0d0) then
-c               epsLag22=epsLag22*10
-c               write(*,*) 'epsLag2 is changed to ',epsLag22
-c            end if
-c         end do
-c         epsLag2=epsLag22
-c         dZdtmido(k)=dZdt
-
-         do j=1,klag
-            jj=modulo(jtmin-klagl-2+m/2+j,m)+1
-c            write(*,*) 'tconma',tconm(jj)-pi
-            wcon=rndconm(jj)*exp(ima*tconm(jj))
-
-            nlimz=epslogzk/log(rndconm(jj))+1
-            if (nlimz.gt.nt2) then
-               nlimz=nt2
-            end if
-
-            call fft_cauchy(nlimz,wcon,zk,cint)
-            Rtmp(j)=cint
-            Ztmp(j)=-ima*cint
-            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
-            if (tlagtmp(j).lt.0.0d0) then 
-               tlagtmp(j)=2.0d0*pi+tlagtmp(j)
-            end if
-         end do
-
-         call IntLagAll(klag,tlagtmp,Rtmp,
-     1           tmaxpmid(2),Rmid,wlag,epsLag22, isame)
-
-         Rmidi(k)=Rmid
-c         dZdt= 0.0d0
-c         epsLag22=epsLag2
-c         do while (dZdt.eq.0.0d0)
-c            call IntLag_sameptsAll(klag,tlagtmp,Ztmp,
-c     1           tmaxpmid(2),Zmid(2),dZdt,epsLag22)         
-c            if (epsLag22.gt.1d-8) then
-c               write(*,*) 'no z grid in inner-midplane'
-c               if (isymud.eq.1) then
-c                  write(*,*) 'contour integrals may not be accurate'
-c                  isymud=0
-c               end if
-c               exit
-c            else if (dZdt.eq.0.0d0) then
-c               epsLag22=epsLag22*10
-c               write(*,*) 'epsLag2 is changed to ',epsLag22
-c            end if
-c         end do
-c         dZdtmidi(k)=dZdt
-c         write(*,*) 'klag',klag,tlagtmp(1:klag),Ztmp(1:klag)
-c         write(*,*) 'klag2',tmaxpmid(2), Zmid(2),dZdt
-
 c         write(*,*) "finished sortcontour0 for icon=",k
       end do
       icon(ncon+1)=itotc+1
-     
       write(*,*) "finished sortcontour1"
       return
       end
@@ -2919,7 +3325,7 @@ c         write(*,*) "finished sortcontour0 for icon=",k
       real *8 Rmido(*), Rmidi(*)
       complex *16 zk(*),dzdw2k(*),dzdww2k(*)
       integer *4 ncross,icon(*), im(ksamp2), jlag(2*ksamp2+2*klag)
-      integer *4 mlag(2*ksamp2+2*klag),jarr(ksamp2)
+      integer *4 mlag(2*ksamp2+2*klag),ilag(ksamp2+2*klag),jarr(ksamp2)
 
       real *8 Rconm(2*nt2*ksamp2), Zconm(2*nt2*ksamp2)
       real *8 psiRconm(2*nt2*ksamp2),psiZconm(2*nt2*ksamp2)
@@ -2956,7 +3362,7 @@ c         write(*,*) "finished sortcontour0 for icon=",k
 
       save 
 
-      kLag=8
+      !kLag=8
       ima = (0.0d0,1.0d0)
       c1 =  (1.0d0,0.0d0)
       pi = 4.0d0*datan(1.0d0)
@@ -2965,7 +3371,7 @@ c         write(*,*) "finished sortcontour0 for icon=",k
       itotc2 = 0
       do k=1, ncon
          !if (psicon(k).lt.psicon(1)*0.2) then
-            ksamp3= ksamp2
+         ksamp3= ksamp2
          !else
          !   ksamp3= ksamp2
          !end if
@@ -3076,6 +3482,7 @@ c         write(*,*) 'psiRin, temp1-1',urtconmc(1:m)
 c         write(*,*) "(Ravg,Zavg)=",Ravg(k),Zavg(k)
 c         write(*,*) "(Rmax,Zmax)=",Rmaxpsi,Zmaxpsi
          tmin=100.0
+         tmin2=100.0
          do j=1, ksamp3
 c            tmaxpm(j)=datan2((Zconm(j)-Zavg(k)),
 c     1           (Rconm(j)-Ravg(k)))
@@ -3083,13 +3490,57 @@ c     1           (Rconm(j)-Ravg(k)))
      1           (Rconm(j)-Rmaxis))
             if (tmaxpm(j).lt.0.0d0) then 
                tmaxpm(j)=2.0d0*pi+tmaxpm(j)
-            end if 
+            end if
             if (tmaxpm(j).lt.tmin) then
                tmin=tmaxpm(j)
                jtmin=j
             end if
+            if (dabs(tmaxpm(j)-pi).lt.tmin2) then
+               tmin2=dabs(tmaxpm(j)-pi)
+               jtmin2=j
+            end if
          end do
+
+         !find outer mid-plane point and inner mid-plane point
+         tmaxpmid(1)=0.0 !(isortstart)
+         tmaxpmid(2)=pi !isortstart)
+
+         klagl=floor(klag/2.0)
+         klagr=klag-klagl
+         
+c         write(*,*) 'tmaxpmid',tmaxpmid
+c         write(*,*) 'tmaxp',tmaxp(1:ksamp3)
+         do j=1,klag
+            jj=modulo(jtmin-klagl-2+j,ksamp3)+1
+            Rtmp(j)=Rconm(jj)
+            Ztmp(j)=Zconm(jj)
+            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
+         end do
+         epsLag22=epsLag2
+         call IntLagAll(klag,tlagtmp,Rtmp,
+     1           tmaxpmid(1),Rmid,wlag,epsLag22, isame)
+c         write(*,*) 'tlagtmp',tlagtmp(1:klag),Rtmp(1:klag),Rmid
+         Rmido(k)=Rmid
+         !write(*,*) 'tlagtmp-o',Rmid,tlagtmp(1:klag),Ztmp(1:klag)
+
+         do j=1,klag
+            jj=modulo(jtmin2-klagl-2+j,ksamp3)+1
+            Rtmp(j)=Rconm(jj)
+            Ztmp(j)=Zconm(jj)
+            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
+            if (tlagtmp(j).lt.0.0d0) then
+               tlagtmp(j)=2.0d0*pi+tlagtmp(j)
+            end if
+         end do
+
+         call IntLagAll(klag,tlagtmp,Rtmp,
+     1           tmaxpmid(2),Rmid,wlag,epsLag22, isame)
+
+         Rmidi(k)=Rmid
+         !write(*,*) 'tlagtmp',Rmid,tlagtmp,Ztmp
+
 c        write(*,*)'tt1',tmaxpm(1:ksamp3),Rconm(1:ksamp3),Zconm(1:ksamp3)
+
          do j=1,ksamp3
             jarr(j)=j
          end do
@@ -3203,7 +3654,6 @@ c                        ttry1=datan2((Ztry-Zavg(k)),(Rtry-Ravg(k)))
                   exit
                else
                   wcon=rndconm(itry2)*exp(ima*tconm(itry2))
-
                   nlimz=epslogzk/log(rndconm(itry2))+1
                   if (nlimz.gt.nt2) then
                      nlimz=nt2
@@ -3329,94 +3779,6 @@ c     1           ,psiRZconex(itotc),uy/(2.0d0*sqrt(Rtry)),uxy*sqrt(Rtry)
          end if
 c        write(*,*) "CPU time sortcontour4: t(sec)= ",tsec 
 
-         !find outer mid-plane point and inner mid-plane point
-         tmaxpmid(1)=tmaxp(1) !(isortstart)
-         tmaxpmid(2)=tmaxp(ksamp3/2+1) !isortstart)
-c         write(*,*) 'tmaxpmid',tmaxpmid
-c         write(*,*) 'tmaxp',tmaxp(1:ksamp3)
-         do j=1,klag
-            jj=modulo(jtmin-klagl-2+j,m)+1
-            wcon=rndconm(jj)*exp(ima*tconm(jj))
-            nlimz=epslogzk/log(rndconm(jj))+1
-            if (nlimz.gt.nt2) then
-               nlimz=nt2
-            end if
-            call fft_cauchy(nlimz,wcon,zk,cint)
-            Rtmp(j)=cint
-            Ztmp(j)=-ima*cint
-c            tlagtmp(j)=datan2((Ztmp(j)-Zavg(k)),(Rtmp-Ravg(k)))
-            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
-         end do
-         epsLag22=epsLag2
-         call IntLagAll(klag,tlagtmp,Rtmp,
-     1           tmaxpmid(1),Rmid,wlag,epsLag22, isame)
-c         write(*,*) 'tlagtmp',tlagtmp(1:klag),Rtmp(1:klag),Rmid
-         Rmido(k)=Rmid
-         
- 
-c         dZdt= 0.0d0
-c         epsLag22=epsLag2
-c         do while (dZdt.eq.0.0d0)
-c            call IntLag_sameptsAll(klag,tlagtmp,Ztmp,
-c     1           tmaxpmid(1),Zmid(1),dZdt,epsLag22)
-c            write(*,*) 'epsLag2 is changed to ',epsLag22
-c            if (epsLag22.gt.1d-8) then
-c               write(*,*) 'no z grid in outer-midplane'
-c               if (isymud.eq.1) then
-c                  write(*,*) 'contour integrals may not be accurate'
-c                  isymud=0
-c               end if
-c               exit
-c            else if (dZdt.eq.0.0d0) then
-c               epsLag22=epsLag22*10
-c               write(*,*) 'epsLag2 is changed to ',epsLag22
-c            end if
-c         end do
-c         epsLag2=epsLag22
-c         dZdtmido(k)=dZdt
-
-         do j=1,klag
-            jj=modulo(jtmin-klagl-2+m/2+j,m)+1
-c            write(*,*) 'tconma',tconm(jj)-pi
-            wcon=rndconm(jj)*exp(ima*tconm(jj))
-            nlimz=epslogzk/log(rndconm(jj))+1
-            if (nlimz.gt.nt2) then
-               nlimz=nt2
-            end if
-            call fft_cauchy(nlimz,wcon,zk,cint)
-            Rtmp(j)=cint
-            Ztmp(j)=-ima*cint
-            tlagtmp(j)=datan2((Ztmp(j)-Zmaxis),(Rtmp(j)-Rmaxis))
-            if (tlagtmp(j).lt.0.0d0) then 
-               tlagtmp(j)=2.0d0*pi+tlagtmp(j)
-            end if
-         end do
-
-         call IntLagAll(klag,tlagtmp,Rtmp,
-     1           tmaxpmid(2),Rmid,wlag,epsLag22, isame)
-
-         Rmidi(k)=Rmid
-c         dZdt= 0.0d0
-c         epsLag22=epsLag2
-c         do while (dZdt.eq.0.0d0)
-c            call IntLag_sameptsAll(klag,tlagtmp,Ztmp,
-c     1           tmaxpmid(2),Zmid(2),dZdt,epsLag22)         
-c            if (epsLag22.gt.1d-8) then
-c               write(*,*) 'no z grid in inner-midplane'
-c               if (isymud.eq.1) then
-c                  write(*,*) 'contour integrals may not be accurate'
-c                  isymud=0
-c               end if
-c               exit
-c            else if (dZdt.eq.0.0d0) then
-c               epsLag22=epsLag22*10
-c               write(*,*) 'epsLag2 is changed to ',epsLag22
-c            end if
-c         end do
-c         dZdtmidi(k)=dZdt
-c         write(*,*) 'klag',klag,tlagtmp(1:klag),Ztmp(1:klag)
-c         write(*,*) 'klag2',tmaxpmid(2), Zmid(2),dZdt
-
 c         write(*,*) "finished sortcontour0 for icon=",k
 
          end if
@@ -3427,6 +3789,209 @@ c         write(*,*) 'Rcon3',Rcon((k-1)*ksamp3+1:k*ksamp3)
       write(*,*) "finished sortcontour1"
       return
       end
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !!!!!!!!! junhyuk bookmark !!!!!!!!
+
+      subroutine caljac(n, m, tpch, ttch, Jch2)
+         use arrays, only: ntpsi, tpsi, nttin, ttin
+         use arrays, only: kcheb, ksamp2, jac2D, nchq
+         use arrays, only: cftmq, epstri
+         implicit real*8 (a-h,o-z)
+
+         integer n, m, l, i, j, k
+         real *8 tpch(n), ttch(m)
+         real *8 Jodd(nchq,ksamp2+1), Jeven(nchq,ksamp2+1)
+         real *8 Jech(n,ksamp2+1), Joch(n,ksamp2+1)
+         real *8 Jch(n,ksamp2+1), Jch2(n,m)
+         real *8 chcoefft(nchq)
+         real *8 weven(ksamp2),wodd(ksamp2)
+         ! use FFT
+         real *8 wsave(10 000)
+         complex *16 fin2(ksamp2)
+
+   ! jac2D(i,ksamp2+1) is empty. -.-;;; 210819
+         jac2D(:,ksamp2+1)=jac2D(:,1)
+
+   ! make Jacobian odd, even
+         do i=1,nchq
+            do j=1,ksamp2
+               Jodd(i,j)=(jac2D(i,j)-jac2D(i,ksamp2+2-j))/2.0d0
+               Jeven(i,j)=(jac2D(i,j)+jac2D(i,ksamp2+2-j))/2.0d0
+            end do
+         end do
+         do i=1, nchq
+            Jodd(i,ksamp2+1)=Jodd(i,1)
+            Jeven(i,ksamp2+1)=Jeven(i,1)
+         end do
+   
+   
+         do i=1,ksamp2  
+            call chftransq(chcoefft, Jeven(1:nchq,i), nchq, cftmq) 
+            do j=1,n
+               call chfit(1.0d0-tpch(j), nchq, chcoefft, Jech(j,i))
+            end do
+         end do
+         Jech(:,ksamp2+1)=Jech(:,1)
+         do i=1,ksamp2
+            call chftransq(chcoefft, Jodd(1:nchq,i), nchq, cftmq)
+            do j=1,n
+               call chfit(1.0d0-tpch(j), nchq, chcoefft, Joch(j,i))
+            end do
+         end do
+         Joch(:,ksamp2+1)=Joch(:,1)
+         !Jch=Jech+Joch
+   
+   ! upsale resolution of theta grid by FFT. (ksamp2 --> ttch ) 
+   ! Joch(n,ksamp2+1) , Jech(n,ksamp2+1) ->  Jch2(n,m)
+         call dcffti(ksamp2,wsave)
+         do k=1,n
+            fin2=Jech(k,1:ksamp2)
+            call dcfftf(ksamp2,fin2,wsave)
+            do j=1,ksamp2
+               weven(j)=realpart(fin2(j))/(dble(ksamp2)/2.0d0)
+            end do
+            fin2=Joch(k,1:ksamp2)
+            call dcfftf(ksamp2,fin2,wsave)
+            do j=1,ksamp2
+               wodd(j)=-imagpart(fin2(j))/(dble(ksamp2)/2.0d0)
+            end do
+
+            do j=1,m
+               Jch2(k,j)=wodd(1)/2.0+weven(1)/2.0
+               do i=2,ksamp2/2+1
+                  l=i-1
+                  Jch2(k,j)=Jch2(k,j)+wodd(i)*dsin(l*ttch(j))
+                  Jch2(k,j)=Jch2(k,j)+weven(i)*dcos(l*ttch(j))
+               end do
+            end do
+         end do ! k-loop end
+      return
+      end
+
+
+      !!!!!!!!! junhyuk bookmark !!!!!!!!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      
+!       subroutine getVolume(Jint2)
+!          use arrays, only: ntpsi, tpsi, nttin, ttin
+!          use arrays, only: kcheb, ksamp2
+!          use arrays, only: epstri, nhamada, nhpsi
+   
+!          integer n, m
+!          real *8 psiichsub(kcheb), tpmid(ntpsi+1), tpch(kcheb*ntpsi)
+!          real *8 ttmid(nttin+1), ttch(nttin*kcheb)
+!          real *8 Jch2(ntpsi*kcheb,nttin*kcheb)
+!          real *8 Js(nhpsi,nhamada), Js2(nhpsi,nhamada*kcheb)
+!          real *8 thtemp(ksamp2+1), trtemp(nttin*kcheb)
+!          real *8 spbxt(kcheb*kcheb), spxbt(kcheb*kcheb)
+!          real *8 spdeft(kcheb), cftmsub(kcheb*kcheb)
+!          real *8 Jint2(ntpsi,nttin),Jint1(ntpsi,nttin*kcheb)
+!          real *8 Jch22(ntpsi*kcheb,nttin*kcheb),ttch2(nhamada*kcheb)
+!          real *8 Jch(ntpsi*kcheb,ksamp2+1)
+!          real *8 Jsint(nhpsi,nhamada+1)
+!          real *8 Jtotal,Jtemp1,Jtemp2, Jtemp3, ja, ja1,ja2,ja3, jeps
+!          integer *4 ij1, ij2, ij3
+
+!          pi=4.0d0*datan(1.0d0)         
+
+
+!          call chsetupq(kcheb, psiichsub, cftmsub, spbxt, spxbt, spdeft)
+         
+!          write(*,*) 'psiichsub', psiichsub(1:kcheb) !make Jacobian odd, even
+
+!          do k=1,nttin-1
+!             ttmid(k) = (ttin(k)+ttin(k+1))/2.0d0 ! make theta(mid) 
+!          end do
+!          ttmid(nttin)=(ttin(1)+2.0d0*pi+ttin(nttin))/2
+!          ttmid(nttin+1)=ttmid(1)+2.0d0*pi
+!          write(*,*) 'ttmid', ttmid(1:nttin+1)
+
+!          write(*,*) 'tpsi', tpsi(1:ntpsi)    !  make psi(mid)
+!          do k=1,ntpsi-1
+!             tpmid(k+1)=(tpsi(k)+tpsi(k+1))/2.0d0
+!          end do
+!          tpmid(1)=tpsi(1)
+!          tpmid(ntpsi+1)=tpsi(ntpsi)
+!          write(*,*) 'tpmid', tpmid(1:ntpsi+1)
+
+
+!          do j=1,ntpsi
+!             do i=1,kcheb
+!                ja=tpmid(j)-tpmid(j+1)
+!                tpch((j-1)*kcheb+i)=tpmid(j+1)+ja*psiichsub(i) ! psi(ch)
+!             end do
+!          end do
+!          write(*,*) 'tpch', tpch(1:kcheb*ntpsi)
+
+
+!          do j=1,nttin
+!             do i=1,kcheb
+!                ja = ttmid(j+1)-ttmid(j)
+!                trtemp((j-1)*kcheb+i)=ttmid(j)+ja*(1-psiichsub(i)) !ttch at 2pi/(nttin*2) ~ 2pi+//
+!             end do
+!          end do
+!          ij1=kcheb*nttin
+!          do k=1,ij1-kcheb/2
+!             ttch(k+kcheb/2)=trtemp(k)
+!          end do
+!          do k=1,kcheb/2
+!             ttch(k)=trtemp(ij1-kcheb/2+k) - 2.0d0*pi
+!          end do
+!          write(*,*) 'ttch', ttch(1:nttin*kcheb)
+
+!          call caljac(ntpsi*kcheb, nttin*kcheb, tpch, ttch, Jch2)
+
+!          Jch22=Jch2
+!          do i=1,kcheb*nttin-kcheb/2
+!             Jch2(:,i+kcheb/2)=Jch22(:,i)
+!          end do
+!          do i=1,kcheb/2
+!             Jch2(:,i)=Jch22(:,ij1-kcheb/2+i)
+!          end do
+
+!          Jtotal=0.0d0
+
+!          do l=1,nttin !nttin
+!             do k=1,ntpsi !ntpsi
+!                Jtemp2=0.0d0
+!                do j=1, kcheb !theta kcheb
+!                   Jtemp1=0.0d0
+!                   do i=1, kcheb !psi kcheb
+!                      Jtemp1=Jtemp1+spdeft(i)*Jch2(kcheb*(k-1)+i
+!      1  ,kcheb*(l-1)+j)
+!                   end do
+!                   Jtemp1=Jtemp1*(tpmid(k)-tpmid(k+1))
+!                   Jint1(k,kcheb*(l-1)+j)=Jtemp1/2.0d0
+!                   Jtemp2=Jtemp2+spdeft(j)*Jint1(k,kcheb*(l-1)+j)
+!                end do
+!                Jtemp2=jtemp2*2.0d0*pi/dble(nttin)
+!                Jint2(k,l)=Jtemp2*pi
+!                Jtotal=Jtotal+Jint2(k,l)
+!             end do
+!          end do
+
+!          ! write(*,*) 'Jtotal', Jtotal
+
+!          ! do k=1,ntpsi
+!          !    write(*,*) 'Jint2', Jint2(k,:)
+!          ! end do
+   
+! !         open(sol_unit, file='Jch2.out') !, status='new')
+! !         do i=1,ntpsi*kcheb
+! !            write (sol_unit, *) Jch2(i,:)
+! !         end do
+! !         close(sol_unit)
+
+! !         open(sol_unit, file='Jtpch.out') !, status='new')
+! !         write (sol_unit, *) tpch(1:ntpsi*kcheb)
+! !         close(sol_unit)
+! !         open(sol_unit, file='Jttch.out') !, status='new')
+! !         write (sol_unit, *) ttch(1:nttin*kcheb)
+! !         close(sol_unit)
+!       return
+!       end
+
 
       subroutine checkcontour(ncon,psicon,nr,ntheta,rnd,tnd,psi,icheck)
 
@@ -3515,10 +4080,10 @@ c        Find the crossing points of (psi-psicon(k)) at theta=0
          thin(nin+1)=tmaxp(istart)+2.0d0*pi
 
          if (isymud.eq.0) then
-            thintmp(1:nint+1)=thin(1:nint+1)/2.0d0
+            thintmp(1:nint+1)=thin(1:nint+1)/2.0d0 !!check junhyuk
             ttintmp(1:nttin)=ttin(1:nttin)/2.0d0
          end if
-
+        ! write(*,*) 'ninttt', nin, nint
          do j=1,nin
             kj=istart+j-1
             dpsi2=(psiR(kj)**2+psiZ(kj)**2)/lambda**2
@@ -3571,7 +4136,10 @@ c            write(*,*) 'shatlocal20',ist,istart
 c            write(*,*) 'shatlocal20',shatlocal0(istart:istart+nin-1)
 c            write(*,*) 'shatlocal2', shatlocal2(ist:ist+nttin-1)
          else
-            
+   !          call IntTriEmest(nin+1,thin,shatlocal0(istart),nttin,
+   !   1           ttin,temp,epstri)
+   !       write(*,*) 'shattt', shatlocal0(istart)
+   !       write(*,*), temp
             call IntTriCos(nin+1,thintmp,shatlocal0(istart),nttin,
      1           ttintmp,temp,epstri)
             ist=(k-1)*nttin+1
@@ -3929,6 +4497,8 @@ c
 c
 c
 c
+
+
       subroutine findq0(ncon,lambda,Ic,cftmq,F0, q0)
 
       use arrays, only: fpolsgn
@@ -4140,7 +4710,7 @@ c         write(*,*) 'fpolcon2fit',fpolcon2fit
       subroutine fitMiller(ncon,icon,Rcon,Zcon,Ravg,Zavg
      1    ,epsFIT,R0mil,iaspmil,kappamil,deltamil)
 
-      use arrays, only:  nt2, ksamp2
+      use arrays, only:  nt2, ksamp2,isymud
       
 
       implicit real*8 (a-h,o-z)
@@ -4202,8 +4772,8 @@ c               b1=1.0d0;b2=0.32d0;b3=dasin(0.33d0);b4=1.7d0*b2
                sumy2=0.0d0
 
                do i=1,nin
-               Z0=0.0d0 !symmetric
-               b4=(ZatZmax-Z0)
+                  Z0=(ZatZmax+ZatZmin)/2.0d0
+                  b4=(ZatZmax-Z0)
                if (i.le.iZmax) then
                   theta(i)=dasin((Zin(i)-Z0)/(ZatZmax-Z0))
                else if (i.le.nin/2) then
@@ -4218,9 +4788,9 @@ c               b1=1.0d0;b2=0.32d0;b3=dasin(0.33d0);b4=1.7d0*b2
 c               datan2((Zin(i)-Z0),
 c     1              (Rin(i)-b1))
                end do
-
             else
                fac=1.0d0
+         ! write(*,*)'==delb',real(delb(1)),real(delb(2)),real(delb(3))
                b1=b1-fac*real(delb(1))
                b2=b2-fac*real(delb(2))
                b3=b3-fac*real(delb(3))
@@ -4228,9 +4798,7 @@ c               b4=b4-fac*real(delb(4))
                
             end if
 
-         
-c            write(*,*) 'theta',theta(1:nin)
-c            write(*,*) 'b1,b2,b3,b4',b1,b2,b3,b4
+            !write(*,*) 'theta',theta(1:nin)
             sumy1=sumy2
             sumy2=0.0d0
             do i=1,nin
@@ -4242,6 +4810,7 @@ c               Zfit(i)=b4*dsin(theta(i))
 c                write(*,*) 'R,z',Rfit(i),Rin(i),Zfit(i),Zin(i)
                sumy2=sumy2+dely(i)        
             end do
+
 c            write(*,*) 'dely',dely(1:nin)
 c            write(*,*) 'sum2,sum1',sumy2,sumy1
             dsumy=sumy2-sumy1
@@ -4286,10 +4855,11 @@ c            write(*,*) 'sum2,sum1',sumy2,sumy1
 c               JTJ(j1,j1)=JTJ(j1,j1)+regulp*(1.0d0,0.0d0)
 c               write(*,*) 'jTj',   JTJ(j1,1:4)
             end do
+
             call cqrdecom(A,3,w7,rcond)
-c            write(*,*) 'condition number', rcond
+            ! write(*,*) 'condition number', iiterf,rcond
             call cqrsolve(3,w7,y,delb)  
-c            write(*,*) 'iiterf,delb', iiterf,real(delb(1:3))
+            ! write(*,*) 'iiterf,delb', iiterf,real(delb(1:3))
          end do
 
          R0mil(k)=b1
@@ -4342,17 +4912,18 @@ c      write(*,*) 'psiRintot',psiRcon(1:ncon*ksamp3)
 
          call findsinglefint(nin,Rin, Zin
      1     ,thin, psiRin, psiZin
-     2     ,Ia(k),Ib(k),Ic(k),Lp(k),Id(k))
+     2     ,Ia(k),Ib(k),Ic(k),Lp(k),Id(k),k)
       end do
 c      write(*,*) 'psicon2',psicon(1:ncon)
       return
       end 
 
       subroutine findsinglefint(nin,Rin,Zin,thin,psiRin,psiZin
-     1    ,fout1,fout2,fout3,fout4,fout5)
+     1    ,fout1,fout2,fout3,fout4,fout5,k)
 
-      use arrays, only:  nt2, ksamp2, epstri
+      use arrays, only: nt2, ksamp2, epstri
       use arrays, only: isymud, Rmaxis, Zmaxis
+      use arrays, only: Jac2D
 
       implicit real*8 (a-h,o-z)
 c      save
@@ -4369,8 +4940,8 @@ c      parameter (nint=nt2)
       real *8 temp6(nin+1), temp7(nin+1), temp8(nin+1)
   
       real *8 thint(nin+1),integ11(nin+1)
-      real *8 integ12(nin+1),integ13(nin+1)
-      real *8 integ14(nin+1),integ15(nin+1)
+      real *8 integ12(nin+1),integ13(nin+1),integ14(nin+1)
+      real *8 integ15(nin+1)
 
       integer *4 i,j,k, kLag2, iw, itype, nint
 
@@ -4401,6 +4972,11 @@ c      epstri= 1.0d-10
          end do
          tttmp(1:nint)=thint(1:nint)/2.0d0
       end if
+
+      ! write(*,*)'thin',thin(1),thin(nin),thin(nin+1)
+      ! write(*,*)'thint',thint(1),thint(nin),thint(nin+1)
+      ! write(*,*)'thintmp',thintmp(1),thintmp(nin),thintmp(nin+1)
+      ! thint(nin+1)=2.0d0*pi+thin(1)
  
 
       BpR2(1:nin+1)=(psiRin(1:nin+1)**2.0d0+psiZin(1:nin+1)**2.0d0)
@@ -4431,7 +5007,6 @@ c      write(*,*) 'temp4 ',temp4(1:nin+1),thintmp(1:nin/2+1)
       temp8(1:nin+1)=1.0d0/temp3(1:nin+1)/Rin(1:nin+1)
 
       if (isymud.eq.1) then
-
          call IntTriCos(nin/2+1,thintmp,temp4,nint/2,
      1        thint,integ11,epstri)
 c     write(*,*) 'intlag2'
@@ -4448,6 +5023,7 @@ c     write(*,*) 'intlag4'
 c     write(*,*) 'intlag5'
          call IntTriCos(nin/2+1,thintmp,temp8,nint/2,
      1        thint,integ15,epstri)
+         
 
          integ11(nint/2+1)=temp4(nin/2+1)
          integ12(nint/2+1)=temp5(nin/2+1)
@@ -4464,9 +5040,18 @@ c     write(*,*) 'intlag5'
          end do
 c         write(*,*) 'integ11t2',integ11(1:nint+1)
       else                      ! if isymud is not 1 (up-down assymmetric)
-        
+         !call cpu_time(stime)
          call IntTriCos(nin+1,thintmp,temp4,nint+1,
      1        tttmp,integ11,epstri)
+         !call cpu_time(etime)
+        ! write(*,*) 'emestime', etime-stime
+        ! write(*,*) 'emtemp',integ11
+
+         !call cpu_time(stime)
+         !call fffttt(nin+1,thintmp,temp4,nint+1,thint,integ11)
+         !call cpu_time(etime)
+         !write(*,*) 'emestime2', etime-stime
+         !write(*,*) 'emtemp2',integ11
   
 c     write(*,*) 'intlag2'
          call IntTriCos(nin+1,thintmp,temp5,nint+1,
@@ -4482,6 +5067,7 @@ c      write(*,*) 'intlag4'
 c      write(*,*) 'intlag5'
          call IntTriCos(nin+1,thintmp,temp8,nint+1,
      1        tttmp,integ15,epstri)
+
 
       end if                    ! end if isymud.eq.1
 
@@ -4502,13 +5088,90 @@ c      write(*,*) 'intlag5'
       fout3=fout3*2.0d0*pi/nint
       fout4=fout4*2.0d0*pi/nint
       fout5=fout5*2.0d0*pi/nint
+
 c      write(*,*) 'integ11',integ11(1:nin+1)
 c      write(*,*) 'integ12',integ12(1:nin+1)
 c      write(*,*) 'integ13',integ13(1:nin+1)
 c      write(*,*) 'fout2',fout2
+
+      jac2D(k,:)=integ12(1:nin+1)
+      write(*,*) 'jac0',integ12
+
       return 
 
       end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
       subroutine calfint2(ncon,psicon,Rcon,Zcon,tmaxp,icon
      1    ,psiRcon,psiZcon,Ie,Ig,Ih)
@@ -4834,19 +5497,843 @@ c      write(*,*) 'fouttf1',fouttf1
 
       end
 
+!!!!!!!!!!!!!!!!subroutine for iboozer  !!!!!!
+      subroutine calRflux(tRcon,ttch3,Rflux)
+      ! input : tRcon
+      ! output : R_flux
 
-      subroutine calmetric(ncon,psicon,Rcon,Zcon,tmaxp,icon,psiRcon
+      use arrays, only : ntpsi,nflux,kcheb
+      use arrays, only : ftin,ksamp2
+      implicit real*8 (a-h,o-z)
+      parameter (ncon0=200)
+
+      integer *4 i,j,k,l
+      real *8 Rflux(ntpsi,nflux*kcheb)
+      real *8 tRcon(3*ksamp2*ncon0),tRslice(ksamp2+1)
+      real *8 tRodd(ksamp2),tReven(ksamp2),wodd(ksamp2),weven(ksamp2)
+      real *8 spbxt(kcheb*kcheb), spxbt(kcheb*kcheb)
+      real *8 spdeft(kcheb), cftmsub(kcheb*kcheb), psiichsub(kcheb)
+      real *8 ttch3(nflux*kcheb),ja
+      ! use FFT
+      real *8 wsave(10 000)
+      complex * 16 ima,fin2(ksamp2)
+
+      ! upscale resolution of theta grid ( nflux --> nflux*kcheb )
+      call chsetupq(kcheb, psiichsub, cftmsub, spbxt, spxbt, spdeft)
+      do j=1,nflux
+         do i=1,kcheb
+            ja = ftin(j+1)-ftin(j)
+            ttch3((j-1)*kcheb+i)=ftin(j)+ja*(1-psiichsub(i))
+         end do
+      end do
+
+      ! tRcon(ntpsi*ksamp2) --> R_flux(ntpsi , nflux*kcheb)
+      call dcffti(ksamp2,wsave)
+      do k=1,ntpsi
+
+         tRslice(1:ksamp2)=tRcon((k-1)*ksamp2+1:k*ksamp2)
+         tRslice(ksamp2+1)=tRcon((k-1)*ksamp2+1 )
+         do j=1,ksamp2
+            tRodd(j)= ( tRslice(j)-tRslice(ksamp2+2-j) )/2.0d0
+            tReven(j)=( tRslice(j)+tRslice(ksamp2+2-j) )/2.0d0
+         end do
+
+         fin2=tRodd
+         call dcfftf(ksamp2,fin2,wsave)
+         do j=1,ksamp2
+            wodd(j)=-imagpart(fin2(j))/(dble(ksamp2)/2.0d0)
+         end do
+         fin2=tReven
+         call dcfftf(ksamp2,fin2,wsave)
+         do j=1,ksamp2
+            weven(j)=realpart(fin2(j))/(dble(ksamp2)/2.0d0)
+         end do
+
+ 
+         do j=1,nflux*kcheb
+            Rflux(k,j)=wodd(1)/2.0+weven(1)/2.0
+            do i=2,ksamp2/2+1
+               l=i-1
+            Rflux(k,j)=Rflux(k,j)+wodd(i)*dsin(l*ttch3(j))
+            Rflux(k,j)=Rflux(k,j)+weven(i)*dcos(l*ttch3(j))
+            end do
+         end do
+      end do ! k-loop end
+
+      end subroutine
+
+      subroutine flux_theta(hpsi,thf,ntpsi,nflux,Jch4,R_flux,tqmil,F)
+      ! input: nhpsi  ,nflux , Jch4, R_flux,tqmil
+      ! output: thf dimension(nhpsi,nflux+1)
+      ! uniform theta in real(cylindrical?) coordinate, 
+
+      use arrays, only: kcheb,lambda
+
+      implicit real*8 (a-h,o-z)
+      parameter (ncon0=200)
+
+      integer *4 ntpsi,nflux 
+      real *8 psiichsub(kcheb),F(ntpsi)
+      real *8 Jtotal,Jtemp1,Jtemp2, Jtemp3, ja, ja1,ja2,ja3, jeps
+      real *8 spbxt(kcheb*kcheb), spxbt(kcheb*kcheb)
+      real *8 spdeft(kcheb), cftmsub(kcheb*kcheb)
+      real *8 Jch4(ntpsi,nflux*kcheb),R_flux(ntpsi,nflux*kcheb)
+      real *8 chcoefft(ncon0)
+      real *8 hpsi(ntpsi),tqmil(ntpsi)
+      real *8 thf(ntpsi,nflux+1) 
+      real *8 pi,temp_F,tempR(nflux*kcheb) ! use q and J/R^2
+      real *8 temp_thf(nflux+1)
+      integer *4 i,j,k,l,m,n
+      pi=4.0d0*datan(1.0d0)
+
+      call chsetupq(kcheb, psiichsub, cftmsub, spbxt, spxbt, spdeft)
+      ! only kcheb is input for chsetupq, others are all outputs.
+
+      !!! line integral
+      thf=0.0d0
+      do i=1,ntpsi
+         Jtemp3=0.0d0
+         do j=1, nflux
+            Jtemp2=0.0d0
+            do k=1, kcheb
+               Jtemp2=Jtemp2+(spdeft(k)/2.0d0)*Jch4(i,kcheb*(j-1)+k)
+     1             /(R_flux(i,kcheb*(j-1)+k)**2.0d0)
+            end do
+            Jtemp2=Jtemp2*2.0d0*pi/dble(nflux)  
+            Jtemp3=Jtemp3+Jtemp2
+            thf(i,j+1)=Jtemp3/tqmil(i)   
+         end do
+         temp_F=tqmil(i)/Jtemp3*2.0d0*pi
+	      do j=1, nflux
+            thf(i,j+1)=thf(i,j+1)*temp_F
+	      end do
+
+      end do
+      return
+      end subroutine
+
+
+      subroutine get_flux_theta_grid_v2(ntpsi,nflux,thf,thunif,
+     1                 wodd,weven)
+      use arrays, only: ftin
+      implicit double precision(a-h, o-z)
+
+      integer *4 i,j,k,l,m,n 
+      integer *4 ntpsi,nflux 
+      real *8 pi,maxerror,delta
+      real *8 thunif(ntpsi,nflux+1)
+      real *8 thfd(nflux+1),thf(ntpsi,nflux+1)
+      real *8 thfd_even(nflux),thfd_odd(nflux)
+      real *8 wodd(ntpsi,nflux),weven(ntpsi,nflux)
+      real *8 thetain0,thetain1,thetain2
+      real *8 thetaout1,thetaout2,temp_ans
+      ! use FFT ... NO INTRISIN AND INTRICOS
+      real *8 wsave(10 000)      
+      complex *16 ima,fin2(nflux)
+      ima=(0,1) ; maxerror=1e-8
+      pi=4.0d0*datan(1.0d0)
+
+      do i=1,ntpsi
+         !thf_temp=0.0d0
+         do j=1,nflux+1
+            thfd(j)=thf(i,j)-ftin(j)
+         end do ! theta_f-theta
+         do j=1,nflux
+            thfd_odd(j)=(thfd(j)-thfd(nflux+2-j))/2.0d0
+            thfd_even(j)=(thfd(j)+thfd(nflux+2-j))/2.0d0
+         end do
+
+         fin2=thfd_odd
+         call dcffti(nflux,wsave)
+         call dcfftf(nflux,fin2,wsave)
+         !call dcfftb(nflux,fin2,wsave)
+         do j=1,nflux
+            wodd(i,j)=-imagpart(fin2(j))/(dble(nflux)/2.0d0)
+         end do
+
+         fin2=thfd_even
+         call dcfftf(nflux,fin2,wsave)
+         do j=1,nflux
+            weven(i,j)=realpart(fin2(j))/(dble(nflux)/2.0d0)
+         end do
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! binary search part. !!!!!
+         do j=1,nflux ! find all for asimmetry case..
+            thetain0=0.0d0 ; thetain1=pi*2.0d0
+            iter=0 ; delta=1.0
+            do while (delta.gt.maxerror)
+               iter=iter+1
+               thetain2=( thetain0+thetain1 )/2.0d0
+
+               thetaout1=wodd(i,1)/2.0d0
+               thetaout2=weven(i,1)/2.0d0   
+               do k=2,nflux/2+1
+                  l=k-1
+                  thetaout1=thetaout1+wodd(i,k)*dsin(l*thetain2)
+                  thetaout2=thetaout2+weven(i,k)*dcos(l*thetain2)
+               end do
+
+               temp_ans=thetaout1+thetain2  +thetaout2
+               if (temp_ans.gt.ftin(j)) then
+                  thetain1=thetain2
+               else
+                  thetain0=thetain2
+               end if
+
+               delta=temp_ans-ftin(j)
+               delta=abs(delta)
+               
+               if (iter.gt.1000) then
+                  write(*,*)"error (get_flux_theta_grid_v2)",delta
+     1              ,temp_ans,ftin(j)
+                  delta=1e-13
+               end if
+            end do
+            thunif(i,j)=thetain2
+         end do
+         thunif(i,nflux+1)=2.0d0*pi
+      end do
+      end subroutine get_flux_theta_grid_v2
+
+
+      subroutine boozer_metric(Rcon,Zcon,psiRcon,psiZcon,thunif,
+     1   R_flux,Z_flux,dthdR,dthdZ,dpsidR,dpsidZ)
+      use arrays, only:  nt2, ksamp2,iboozer
+      use arrays, only:  nflux, ntpsi
+      use arrays, only: Rmaxis,Zmaxis
+      implicit double precision(a-h, o-z)
+
+      integer i,j,k,l,m
+      real *8 psiZcon(*),psiRcon(*) ! ksamp2*ntpsi
+      real *8 Rcon(*), Zcon(*),contour(ksamp2)
+      real *8 thunif(ntpsi,nflux+1)
+      real *8 R_flux(ntpsi*nflux), Z_flux(ntpsi*nflux)
+      real *8 dthdR(ntpsi*nflux), dthdZ(ntpsi*nflux)
+      real *8 dpsidR(ntpsi*nflux),dpsidZ(ntpsi*nflux)
+      real *8 inputodd(ksamp2),inputeven(ksamp2)
+      real *8 weven(ksamp2),wodd(ksamp2)
+      real *8 theta,temp0,temptheta(nflux)
+      ! use FFT ... NO INTRISIN and INTRICOS
+      real *8 wsave(10 000),pi  
+      complex *16 ima,fin(ksamp2)
+      ima=(0,1) ; maxerror=1e-8
+      pi=4.0d0*datan(1.0d0)
+      call dcffti(ksamp2,wsave)
+      ! input dpsi/dR -NO Lambda included.
+
+      do i=1, ntpsi
+        !!! fft R --> and Z 11111111
+         contour=Rcon((i-1)*ksamp2+1:i*ksamp2)
+         inputodd(1)=0.0d0 ; inputeven(1)=contour(1)
+         do j=2,ksamp2
+            inputodd(j)=(contour(j)-contour(ksamp2+2-j))/2.0d0
+            inputeven(j)=(contour(j)+contour(ksamp2+2-j))/2.0d0
+         end do
+
+         fin=inputeven
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            weven(j)=realpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+         fin=inputodd
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            wodd(j)=-imagpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+
+         do j=1,nflux
+            theta=thunif(i,j)
+            l=(i-1)*nflux+j
+            R_flux(l)=(weven(1)+wodd(1))/2.0d0
+            do k=2,ksamp2/2+1
+               m=k-1
+               R_flux(l)=R_flux(l)+wodd(k)*dsin(m*theta)
+               R_flux(l)=R_flux(l)+weven(k)*dcos(m*theta)
+            end do
+         !Z_flux(l)=(R_flux(l)-Rmaxis)*dtan(theta)+Zmaxis
+         end do
+
+		!!!!!! fft Z 11111-2
+         contour=Zcon((i-1)*ksamp2+1:i*ksamp2)
+         inputodd(1)=0.0d0 ; inputeven(1)=contour(1)
+         do j=2,ksamp2
+            inputodd(j)=(contour(j)-contour(ksamp2+2-j))/2.0d0
+            inputeven(j)=(contour(j)+contour(ksamp2+2-j))/2.0d0
+         end do
+
+         fin=inputeven
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            weven(j)=realpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+         fin=inputodd
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            wodd(j)=-imagpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+
+         do j=1,nflux
+            theta=thunif(i,j)
+            l=(i-1)*nflux+j
+            Z_flux(l)=(weven(1)+wodd(1))/2.0d0
+            do k=2,ksamp2/2 !+1
+               m=k-1
+               Z_flux(l)=Z_flux(l)+wodd(k)*dsin(m*theta)
+               Z_flux(l)=Z_flux(l)+weven(k)*dcos(m*theta)
+            end do
+         end do
+
+         !!! fft dpsidR  2222222222
+         contour=psiRcon((i-1)*ksamp2+1:i*ksamp2)
+
+         inputodd(1)=0.0d0 ; inputeven(1)=contour(1)
+         do j=2,ksamp2
+            inputodd(j)=(contour(j)-contour(ksamp2+2-j))/2.0d0
+            inputeven(j)=(contour(j)+contour(ksamp2+2-j))/2.0d0
+         end do
+
+         fin=inputeven
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            weven(j)=realpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+         fin=inputodd
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            wodd(j)=-imagpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+
+         do j=1,nflux
+            theta=thunif(i,j)
+            l=(i-1)*nflux+j
+            dpsidR(l)=(weven(1)+wodd(1))/2.0d0
+            do k=2,ksamp2/2+1
+               m=k-1
+               dpsidR(l)=dpsidR(l)+wodd(k)*dsin(m*theta)
+               dpsidR(l)=dpsidR(l)+weven(k)*dcos(m*theta)
+            end do
+         end do
+
+
+         !!! fft dpsidZ  3333333333
+         contour=psiZcon((i-1)*ksamp2+1:i*ksamp2)
+         inputodd(1)=0.0d0 ; inputeven(1)=contour(1)
+         do j=2,ksamp2
+            inputodd(j)=(contour(j)-contour(ksamp2+2-j))/2.0d0
+            inputeven(j)=(contour(j)+contour(ksamp2+2-j))/2.0d0
+         end do
+
+         fin=inputeven
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            weven(j)=realpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+         fin=inputodd
+         call dcfftf(ksamp2,fin,wsave)
+         do j=1,ksamp2
+            wodd(j)=-imagpart(fin(j))/(dble(ksamp2)/2.0d0)
+         end do
+
+         do j=1,nflux
+            theta=thunif(i,j)
+            l=(i-1)*nflux+j
+            dpsidZ(l)=(weven(1)+wodd(1))/2.0d0
+            do k=2,ksamp2/2+1
+               m=k-1
+               dpsidZ(l)=dpsidZ(l)+wodd(k)*dsin(m*theta)
+               dpsidZ(l)=dpsidZ(l)+weven(k)*dcos(m*theta)
+            end do
+         end do
+
+       !!! dthdR,dthdZ 444444444
+         do j=1,nflux
+            l=(i-1)*nflux+j
+            theta=thunif(i,j)
+            temp0=1.0d0/( ((Z_flux(l)-Zmaxis)/(R_flux(l)-Rmaxis))**2
+     1       +1.0d0 )
+            dthdR(l)=-temp0*(Z_flux(l)-Zmaxis)/(R_flux(l)-Rmaxis)**2  ! dtheta/dR
+         dthdZ(l)=temp0/(R_flux(l)-Rmaxis)   ! dtheta/dZ
+         end do
+
+
+      end do !  i - loop end
+
+      end subroutine boozer_metric
+
+
+      subroutine get_covariant_B(ntpsi,nflux,thf,
+     1      thunif,B2cov,dpsidR,dpsidZ,dthdR,dthdZ,
+     2            R_contour,Z_contour,wodd,weven)
+      use arrays, only: ftin,lambda,tpsi1,tpsi2
+      use arrays, only: Rmaxis, Zmaxis,tpsi
+      implicit real*8 (a-h,o-z)
+
+      integer *4 i,j,k,l,m,n,ii
+      integer *4 ntpsi,nflux
+      real *8 thunif(ntpsi,nflux+1),thf(ntpsi,nflux+1)
+      real *8 theta,B2cov(ntpsi,nflux+1)
+      real *8 dpsidR(nflux*ntpsi),dpsidZ(nflux*ntpsi)
+      real *8 dthdR(nflux*ntpsi),dthdZ(nflux*ntpsi)
+      real *8 R_contour(nflux*ntpsi),Z_contour(nflux*ntpsi)
+      real *8 dthfdth,dthfdpsi,chevx,BR,BZ,dRdthf,dZdthf
+      real *8 psiichnt(ntpsi),spxbt(ntpsi*ntpsi),spdeft(ntpsi)
+      real *8 spbxt(ntpsi*ntpsi),cftmnt(ntpsi*ntpsi)
+      real *8 wodd(ntpsi,nflux),weven(ntpsi,nflux)
+      real *8 thetaflux(ntpsi)
+      real *8 tempR(ntpsi),tempZ(ntpsi),gu11th(ntpsi)
+
+      call chsetupq(ntpsi, psiichnt, cftmnt, spbxt, spxbt, spdeft)
+      do i=1,ntpsi
+         do j=1,nflux
+            l=(i-1)*nflux+j
+            theta=thunif(i,j)
+            BZ=dpsidR(l)/R_contour(l)/lambda
+            BR=-dpsidz(l)/R_contour(l)/lambda
+        
+
+        !dthfdth=     use FFT output  
+
+            dthfdth=1.0d0  ! for dtheta/dtheta=1.0
+            do k=2,nflux/2+1
+               m=k-1
+               dthfdth=dthfdth+wodd(i,k)*dcos(m*theta)*m
+               dthfdth=dthfdth-weven(i,k)*dsin(m*theta)*m
+            end do
+
+        !dthfdpsi=    use FFT output and chebyshev 
+            do ii=1,ntpsi
+               thetaflux(ii)=theta+(weven(ii,1)+wodd(ii,1))/2.0d0
+               do k=2,nflux/2+1
+                  m=k-1
+                  thetaflux(ii)=thetaflux(ii)+wodd(ii,k)*dsin(m*theta)
+                  thetaflux(ii)=thetaflux(ii)+weven(ii,k)*dcos(m*theta)
+               end do
+            end do
+        
+!	  !dthf/dth=    use Chev interpolation
+!        call chftransq(chcoeff1, thetaflux, ntpsi, cftmnt)
+!        !  tpsi MUST on chev grid... initialize at arrays_v3
+!        chevx=1.0d0-psiichnt(i)  ! same as 1.0d0-tpsi(i)
+!        call chderiv(chevx, ntpsi, chcoeff1, dthfdpsi)
+!        dthfdpsi=-dthfdpsi/(tpsi2-tpsi1)
+!
+
+        ! get B2cov <-use dPsidR,dPsidZ,dthdR,dthdZ,dthfdth
+            temp=dpsidR(l)*dthdZ(l)-dPsidZ(l)*dthdR(l)
+            dRdthf=-dPsidZ(l)/temp/dthfdth
+            dZdthf=dPsidR(l)/temp/dthfdth
+            B2cov(i,j)=BR*dRdthf+BZ*dZdthf
+
+
+         end do
+         B2cov(i,nflux+1)=B2cov(i,1)
+      end do
+
+
+		!!!!! make gu11th for test ECOM output.
+      do i=1,10
+         ii=i*150
+         do j=1,ntpsi
+            l=(ii-1)*ntpsi+j
+		      tempR(j)=R_contour(l)
+            tempZ(j)=Z_contour(l)
+		      gu11th(j)=dpsidR(l)**2+dpsidZ(l)**2
+		   end do
+		   write(*,*)"index(thetaf)=",ii
+		   write(*,*)"R",tempR
+		   write(*,*)"Z",tempZ
+		   write(*,*),"gu11th",gu11th
+	   end do
+
+      end subroutine get_covariant_B
+
+
+      subroutine get_theta_boozer(ntpsi,nflux,thf,thunif,
+     1 B2cov,thetabout,diffzetabout,q,F,thwodd,thweven,Ib,gb)
+      use arrays, only: ftin,lambda,Fpolsgn
+      implicit real*8 (a-h,o-z)
+
+      integer *4 i,j,k,l,m,n,ii
+      integer *4 ntpsi,nflux
+      real *8 thunif(ntpsi,nflux+1),thf(ntpsi,nflux+1)
+      real *8 Ib(ntpsi),gb(ntpsi),q(ntpsi),F(ntpsi)
+      real *8 pi,B2cov(ntpsi,nflux+1),Phi0(nflux)
+      real *8 Phi(nflux),thetaflux
+      real *8 thwodd(ntpsi,nflux),thweven(ntpsi,nflux)
+      real *8 thetabout(ntpsi*(nflux+1))
+      real *8 diffzetabout(ntpsi*(nflux+1))
+      real *8 inputodd(nflux),inputeven(nflux)
+        ! use FFT 
+      real *8 wsave(10 000),weven(nflux),wodd(nflux)
+      complex *16 ima,fin2(nflux)
+      ima=(0,1)
+      pi=4.0d0*datan(1.0d0)
+
+                !!! gb --> + num at (Psi,theta_f,zeta) coordi.
+      Ib=0.0d0 ; gb=-F !add minus to make F>0
+
+      call dcffti(nflux,wsave)
+
+      do i=1,ntpsi
+
+   !!! 1. get Phi,Ib
+
+         do j=1,nflux
+            inputodd(j)=(B2cov(i,j)-B2cov(i,nflux+2-j))/2.0d0
+            inputeven(j)=(B2cov(i,j)+B2cov(i,nflux+2-j))/2.0d0
+         end do
+
+         fin2=inputeven   
+         !call dcffti(nflux,wsave)
+         call dcfftf(nflux,fin2,wsave)
+         do j=1,nflux
+            weven(j)=realpart(fin2(j))/(dble(nflux)/2.0d0)
+         end do
+  
+         fin2=inputodd
+         call dcfftf(nflux,fin2,wsave)
+         do j=1,nflux
+            wodd(j)=-imagpart(fin2(j))/(dble(nflux)/2.0d0)
+         end do
+
+         Ib(i)=( wodd(1)+weven(1) )/2.0d0
+
+   !!! 2. get Phi on theta_f grid  -->theta grid
+          
+         ! theta -->thetaf --> Phi
+         do j=1,nflux
+            theta=ftin(j)
+            thetaflux=theta+thweven(i,1)/2.0d0 +thwodd(i,1)/2.0d0
+            do k=2,nflux/2+1
+               l=k-1
+               thetaflux=thetaflux+thwodd(i,k)*dsin(l*theta)
+               thetaflux=thetaflux+thweven(i,k)*dcos(l*theta)
+            end do
+
+            Phi0(j)=0.0d0
+            do k=2,nflux/2+1
+               l=k-1
+               Phi0(j)=Phi0(j)+weven(k)*dsin(l*thetaflux)/l
+               Phi0(j)=Phi0(j)-wodd(k)*dcos(l*thetaflux)/l
+            end do
+         end do
+
+       ! to make Phi0(1)=0.0 <- add integral constant.
+         do j=1,nflux
+            Phi0(j)=Phi0(j)-Phi0(1)
+         end do
+
+
+   !!! 3. get Phi/(I+qg) and theta_boozer
+
+         do j=1,nflux
+            l=(i-1)*(nflux+1)+j
+            thetabout(l)=thf(i,j)+Phi0(j)/(Ib(i)+q(i)*gb(i))
+            diffzetabout(l)=q(i)*Phi0(j)/(Ib(i)+q(i)*gb(i))
+
+         end do
+
+         l=i*(nflux+1)
+         thetabout(l)=pi*2
+         diffzetabout(l)=0.0d0
+      end do
+
+
+      end subroutine get_theta_boozer
+
+
+
+
+
+      subroutine get_circular_coordi_output1(tRcon,tZcon)
+      use arrays, only: ftin,lambda,tpsi,ntpsi,ksamp2
+      integer *4 i,j,k,l,m,n,ii
+      real *8 q,reps,psi,theta
+      real *8 tRcon(3*ksamp2*ntpsi),tZcon(3*ksamp2*ntpsi)
+
+      q=0.4
+      do i=1,ntpsi
+         psi=1.0-tpsi(i)
+         reps=sqrt(psi*q*2.0)
+
+         do j=1,ksamp2
+            theta=8.0d0*datan(1.0d0)/ksamp2*dble(j-1)  !ftin(j)
+            tRcon((i-1)*ksamp2+j)=1.0+reps*cos(theta)
+            tZcon((i-1)*ksamp2+j)=reps*sin(theta)
+         end do
+      end do
+
+      end subroutine get_circular_coordi_output1
+
+      subroutine get_circular_coordi_output2(tRcon,tZcon,thetab
+     1       ,tqmil,Rmaxis,Zmaxis,lambda)
+      use arrays, only: ftin,tpsi,ntpsi,ksamp2,nflux
+      real *8 tRcon(3*ksamp2*ntpsi),tZcon(3*ksamp2*ntpsi)
+      real *8 q,reps,psi,theta,lambda,tqmil(ntpsi)
+      real *8 thetab(ntpsi*(nflux+1))
+
+      lambda=-1.0
+      Rmaxis=1.0 ; Zmaxis=0.0 ; q=0.4
+      do i=1,ntpsi
+         tqmil(i)=q
+      end do
+
+      reps=sqrt(1.0*q*2.0) ! boundary
+      do j=1,ksamp2
+         theta=ftin(j)
+         tRcon((ntpsi-1)*ksamp2+j)=1.0+reps*cos(theta)
+         tZcon((ntpsi-1)*ksamp2+j)=reps*sin(theta)
+      end do
+
+      do i=1,ntpsi
+         psi=1.0-tpsi(i)
+         reps=sqrt(psi*q*2.0)
+         do j=1,nflux+1
+           theta=8.0d0*datan(1.0d0)/nflux*dble(j-1)  !ftin(j)
+           thetab((i-1)*(nflux+1)+j)=theta-reps*sin(theta)
+         end do
+      end do
+      end subroutine get_circular_coordi_output2
+!!!!!!!!!!!!!!!!subroutine for iboozer end  !!!!!!
+
+
+      subroutine hamada_theta(hpsi,thh,nhpsi,nhamada,dthhdth)
+      ! input
+      ! kcheb,nhamada,nhpsi,htin,hpsi
+      ! htin : uniform theta
+      ! output
+      ! thh : dimension(nhpsi,nhamada+1), 
+      ! uniform theta in hamada coordinate, represented in theta in cylindrical coordinate
+      use arrays, only: kcheb
+      use arrays, only: jac2D, epstri, htin
+      implicit real*8 (a-h,o-z)
+      parameter (ncon0=200)
+      integer *4 nhpsi,nhamada
+      real *8 psiichsub(kcheb), tpmid(nhpsi+1), tpch(kcheb*nhpsi)
+      real *8 Jtotal,Jtemp1,Jtemp2, Jtemp3, ja, ja1,ja2,ja3, jeps
+      real *8 spbxt(kcheb*kcheb), spxbt(kcheb*kcheb)
+      real *8 spdeft(kcheb), cftmsub(kcheb*kcheb)
+      real *8 ttch2(nhamada*kcheb),Jch3(nhpsi,nhamada*kcheb)
+      real *8 Jsint(nhpsi,nhamada+1),Js2(nhpsi,nhamada*kcheb)
+      real *8 Js(nhpsi,nhamada)
+      real *8 chcoefft(ncon0) 
+      real *8 hpsi(nhpsi),dthhdth(nhpsi,nhamada),theta,temp
+      real *8 thh(nhpsi,nhamada+1),thhd(nhamada+1)
+      real *8 thhd_even(nhamada),thhd_odd(nhamada)
+      real *8 wodd(nhpsi,nhamada),weven(nhpsi,nhamada)
+      complex *16 ima,fin2(nhamada)
+      integer *4 ij1, ij2, ij3,i,j,k,l,m,n
+
+      pi=4.0d0*datan(1.0d0)
+      ima=(0,1) 
+      
+      call chsetupq(kcheb, psiichsub, cftmsub, spbxt, spxbt, spdeft)
+      ! only kcheb is input for chsetupq, others are all outputs.
+      !!ch
+      do j=1,nhamada
+         do i=1,kcheb
+            ja = htin(j+1)-htin(j)
+            ttch2((j-1)*kcheb+i)=htin(j)+ja*(1-psiichsub(i))
+         end do
+      end do
+         
+      !hpsi=psiichq 
+      ! you should correct nhpsi at arrays.f90 to change hpsi 
+      ! hpsi : psi's where you want to find hamada coordinates
+      call caljac(nhpsi, nhamada*kcheb, hpsi, ttch2, Jch3)
+      ! output of caljac : Jch3
+
+      !!! line integral
+      Jsint=0.0d0
+      do i=1,nhpsi
+         Jtemp3=0.0d0
+         do j=1, nhamada !theta kcheb
+            Jtemp2=0.0d0
+
+            do k=1, kcheb
+               Jtemp1=0.0d0
+               do l=1, kcheb
+                  Jtemp1=Jtemp1+spbxt((l-1)*kcheb+k)
+     1             *Jch3(i,kcheb*(j-1)+l)
+               end do
+               Jtemp1=Jtemp1*2.0d0*pi/dble(nhamada)/2.0d0
+               Js2(i,(j-1)*kcheb+k)=Jtemp1+Jtemp3
+               Jtemp2=Jtemp2+spdeft(k)*Jch3(i,kcheb*(j-1)+k)
+            end do
+
+            Jtemp2=Jtemp2*2.0d0*pi/dble(nhamada)/2.0d0
+         !  Js(i,j)=Jtemp2*2.0d0*pi
+            Jtemp3=Jtemp3+Jtemp2
+            Jsint(i,j+1)=Jtemp3
+         end do
+      end do
+
+      thh(:,1)=0.0d0
+      thh(:,nhamada+1)=2.0d0*pi
+      do i=1,nhpsi
+         do j=1,nhamada-1
+            ja=Jsint(i,nhamada+1)*j/nhamada
+            jeps=1.0d0
+
+            do l=1,nhamada
+               if ((ja.ge.Jsint(i,l)).and.(ja.lt.Jsint(i,l+1))) then
+                  ij1=(l-1)*kcheb+1
+                  ij2=ij1+kcheb-1
+                  ij3=0
+
+                  do m=0,kcheb-1
+                     if(ja.ge.Js2(i,ij1+m)) then
+                        ij3=ij3+1
+                     end if
+                  end do
+                  if (ij3.eq.0) then
+                     Jtemp1=htin(l)
+                     Jtemp2=ttch2(ij1+ij3)
+                     ja1=Jsint(i,l)
+                     ja2=Js2(i,ij1+ij3)
+                  else if (ij3.eq.kcheb) then
+                     Jtemp1=ttch2(ij1+ij3-1)
+                     Jtemp2=htin(l+1)
+                     ja1=Js2(i,ij1+ij3-1)
+                     ja2=Jsint(i,l+1)
+                  else
+                     Jtemp1=ttch2(ij1+ij3-1)
+                     Jtemp2=ttch2(ij1+ij3)
+                     ja1=Js2(i,ij1+ij3-1)
+                     ja2=Js2(i,ij1+ij3)
+                  end if
+                  ! if ((i.eq.8).and.(j.eq.6)) then
+                  !    write(*,*) 'ij123, l', ij1,ij2,ij3, l
+                  !    write(*,*) 'Jtemp12', Jtemp1, Jtemp2
+                  !    write(*,*) 'htin', htin(l), htin(l+1)
+                  ! end if
+                  ij3=0
+
+                  do n=1,50!while (jeps.gt.epstri)
+                     thh(i,j+1)=(Jtemp1+Jtemp2)/2.0d0
+                     ij3=ij3+1
+                     
+                     Jtemp3=(thh(i,j+1)-htin(l))/(htin(l+1)-htin(l))
+                     call chftransq(chcoefft, Js2(i,ij1:ij2), kcheb
+     1 , cftmsub)   ! output : chcoefft
+                     call chfit(Jtemp3,kcheb,chcoefft,ja3)
+                     
+                     jeps=abs(ja3-ja)
+
+                     ! if (jeps.le.epstri) then
+                     !    write(*,*) 'loop done'
+                     !    write(*,*) 'i,j,n', i, j, ij3
+                     !    write(*,*) 'jeps', jeps
+                     !    write(*,*) 'jtemp132', Jtemp1,thh(i,j+1),Jtemp2
+                     ! end if
+
+                     if (((ja1-ja)*(ja3-ja)).lt.0.0d0) then
+                        Jtemp2=thh(i,j+1)
+                        ja2=ja3
+                     
+                     else if (abs(ja1-ja).le.epstri) then
+                        thh(i,j+1)=Jtemp1
+                        jeps=abs(ja1-ja)
+                        ! write(*,*) 'ja1=ja'
+                        ! write(*,*) 'i,j,n', i, j, n
+                        ! write(*,*) 'jeps', jeps
+
+                     else if (abs(ja2-ja).le.epstri) then
+                        thh(i,j+1)=Jtemp2
+                        jeps=abs(ja2-ja)
+                        ! write(*,*) 'ja2=ja'
+                        ! write(*,*) 'i,j,n', i, j, n
+                        ! write(*,*) 'jeps', jeps
+                     else
+                        Jtemp1=thh(i,j+1)
+                        ja1=ja3
+                     end if
+
+                     if (jeps.le.epstri)  exit
+
+                  end do
+               end if
+            end do
+         end do
+      end do
+
+      do i=1,ntpsi
+         !thf_temp=0.0d0
+         do j=1,nhamada+1
+            thhd(j)=thh(i,j)-htin(j)
+         end do ! theta_f-theta
+         do j=1,nhamada
+            thhd_odd(j)=(thhd(j)-thhd(nhamada+2-j))/2.0d0
+            thhd_even(j)=(thhd(j)+thhd(nhamada+2-j))/2.0d0
+         end do
+
+         fin2=thhd_odd
+         call dcffti(nhamada,wsave)
+         call dcfftf(nhamada,fin2,wsave)
+         !call dcfftb(nflux,fin2,wsave)
+         do j=1,nhamada
+            wodd(i,j)=-imagpart(fin2(j))/(dble(nhamada)/2.0d0)
+         end do
+
+         fin2=thhd_even
+         call dcfftf(nflux,fin2,wsave)
+         do j=1,nhamada
+            weven(i,j)=realpart(fin2(j))/(dble(nhamada)/2.0d0)
+         end do
+
+         do j=1,nhamada
+            theta=thh(i,j)
+            temp=1.0d0  ! for dtheta/dtheta=1.0
+            do k=2,nhamada/2+1
+               m=k-1
+               temp=temp+wodd(i,k)*dcos(m*theta)*m
+               temp=temp-weven(i,k)*dsin(m*theta)*m
+            end do
+            dthhdth(i,j)=temp
+         end do
+
+
+      end do
+      
+
+
+
+      return
+      end subroutine
+      
+      
+      subroutine hamada_metric(ncon,psicon,Rcon,Zcon,tmaxp,icon,psiRcon
      1        ,psiZcon,fpolcon,dfdpsi,dpdpsi,dBdpsi,dalphadpsi0
-     2     ,nttin,ttin,gradpar,Rtrin,Ztrin,bpR,btot,bpol,gbdrift
-     3     ,gbdrift0,cvdrift,cvdrift0,tshatlocal,dalphatt,phitrin)
+     2     ,nttin,ttin,dthhdth,gradpar,Rtrin,Ztrin,bpR,btot,bpol
+     3     ,gbdrift,gbdrift0,cvdrift,cvdrift0,tshatlocal,dalphatt
+     4     ,nhamada,thh,dchidth_hamada,dchidpsi_hamada
+     5     ,dthdR_hamada,dthdZ_hamada,dpsidR_hamada,dpsidZ_hamada
+     6     ,R_hamada,Z_hamada,psidott_hamada)
 
-      use arrays, only:  nt2, ksamp2, dpsidrho,epsLag, kLag
-
+      use arrays, only: nt2, ksamp2, dpsidrho,epsLag, kLag,iboozer
       implicit real*8 (a-h,o-z)
       save
 
       parameter (ndt=8)
-
+      
+      !!! Definition of different theta's !!!
+      ! nttin : # of uniform theta
+      ! ttin : uniform theta
+      ! nhamada : # of hamada theta 
+      ! thh : theta hamada (uniform in hamada coordinate)
+      
+      !!! input !!!
+      ! ncon, psicon
+      ! nttin, ttin
+      ! nhamada, thh
+      
+      !!! output !!!
+      ! dchidth_hamada, dchidpsi_hamada
+      ! dthdR_hamada, dthdZ_hamada
+      ! dpsidR_hamada, dpsidZ_hamada
+      ! R_hamada, Z_hamada
+      ! psidott_hamada
+      
       real *8 psicon(*),psiRcon(*),psiZcon(*), BpR(*)
       real *8 Rcon(*), Zcon(*),tmaxp(*),ttin(*), Rtrin(*), Ztrin(*)
       real *8 psiRin(nt2*ksamp2+1),psiZin(nt2*ksamp2+1)
@@ -4854,26 +6341,43 @@ c      write(*,*) 'fouttf1',fouttf1
       real *8 fpolcon(*),dfdpsi(*),dpdpsi(*),dBdpsi(*),dalphadpsi0(*)
       real *8 gradpar(*), btot(*),bpol(*), gbdrift(*),gbdrift0(*)
       real *8 cvdrift(*),cvdrift0(*),tshatlocal(*),dalphatt(*)
-      real *8 phitrin(*)
       real *8 sgradpar(nttin),sbtot(nttin),sbpR(nttin)
       real *8 sRtrin(nttin),sZtrin(nttin),sbpol(nttin),salphapsi0(nttin)
       real *8 spsidott(nttin),sdBdtheta(nttin),sdalphat(nttin)
       real *8 dalphadpsi(nttin), ddalphadpsidt(nttin),temp(nttin)
-
       real *8 alphapsi0(nttin*ncon)
       real *8 psidott(nttin*ncon),dBdtheta(nttin*ncon)
+      !!! added by wonjun !!!
+      real *8 thh(ncon,nhamada+1)
+      real *8 thhtmp(nhamada)
+      real *8 dchidth_hamada(nhamada*ncon),dchidpsi_hamada(nhamada*ncon)
+      real *8 dthdR(nttin),dthdZ(nttin) 
+      real *8 dpsidR(nttin),dpsidZ(nttin)
+      real *8 dthdR_hamada(nhamada*ncon),dthdZ_hamada(nhamada*ncon) 
+      real *8 dpsidR_hamada(nhamada*ncon),dpsidZ_hamada(nhamada*ncon)
+      real *8 R_hamada(nhamada*ncon), Z_hamada(nhamada*ncon)
+      real *8 psidott_hamada(nhamada*ncon)
+      real *8 Rh_tmp(nhamada) ,Zh_tmp(nhamada),psidott_tmp(nhamada)
+      real *8 dthdR_tmp(nhamada),dthdZ_tmp(nhamada)
+      real *8 dpsidR_tmp(nhamada),dpsidZ_tmp(nhamada)
+      real *8 dalphadth(nttin)
+      real *8 dchidth_tmp(nhamada),dchidpsi_tmp(nhamada)
+      real *8 dthhdth(ncon,nhamada)
+      !!!
 
       real *8 tn(ndt),cftm(ndt*ndt)
       real *8 spbx(ndt*ndt), spxb(ndt*ndt), spdef(ndt)
 c      real *8 fint1(ncon),fint2(ncon), fint3(ncon), chcoeff(ncon)
 c      real *8 dfint1(ncon), lambda
       real *8 pi, mu
+      real*8 :: epstri
       integer *4  icon(*)
       integer i,j,k
 
 c      ksamp3=ksamp2/4 
       pi=4.0d0*datan(1.0d0)
       mu=4.0d-7*pi
+      epstri =1.0d-8
 
       !to calculate integral from 0 to theta
       call chsetupq(ndt, tn, cftm, spbx, spxb, spdef) 
@@ -4894,12 +6398,14 @@ c      write(*,*) 'psiRintot',psiRcon(1:ncon*ksamp3)
          thin(nin+1)=tmaxp(istart)+2.0d0*pi
          psiRin(nin+1)=psiRcon(istart)
          psiZin(nin+1)=psiZcon(istart)
+         
 
-         call findsinglemetric(nin,Rin, Zin
+         call findsinglemetric_hamada(nin,Rin, Zin
      1     ,thin, psiRin, psiZin, fpolcon(k)
      2     ,nttin, ttin, ndt, tn, spdef, cftm
      3     ,sgradpar, sRtrin, sZtrin,sbpR,sbtot,sbpol
-     4     ,salphapsi0,sdBdtheta,spsidott,sdalphat)
+     4     ,salphapsi0,sdBdtheta,spsidott,sdalphat
+     5     ,dthdR,dthdZ,dpsidR,dpsidZ,epstri)
 
          Rtrin((k-1)*nttin+1:k*nttin)=sRtrin(1:nttin)
          Ztrin((k-1)*nttin+1:k*nttin)=sZtrin(1:nttin)
@@ -4911,26 +6417,56 @@ c      write(*,*) 'psiRintot',psiRcon(1:ncon*ksamp3)
          dBdtheta((k-1)*nttin+1:k*nttin)=sdBdtheta(1:nttin)
          psidott((k-1)*nttin+1:k*nttin)=spsidott(1:nttin)
          dalphatt((k-1)*nttin+1:k*nttin)=sdalphat(1:nttin)
+         
+         !!! interpolate values at hamada theta
+         ! isymud.eq.1 assumed
+         thhtmp = thh(k,1:nhamada)
+         call IntTriCos(nttin/2+1,ttin,sRtrin,nhamada/2+1,
+     1        thhtmp,Rh_tmp,epstri)
+         call IntTriCos(nttin/2+1,ttin,sZtrin,nhamada/2+1,
+     1        thhtmp,Zh_tmp,epstri)
+         call IntTriCos(nttin/2+1,ttin,spsidott,nhamada/2+1,
+     1        thhtmp,psidott_tmp,epstri)
+     
+         call IntTriCos(nttin/2+1,ttin,dthdR,nhamada/2+1,
+     1        thhtmp,dthdR_tmp,epstri) 
+         call IntTriCos(nttin/2+1,ttin,dthdZ,nhamada/2+1,
+     1        thhtmp,dthdZ_tmp,epstri)
+         call IntTriCos(nttin/2+1,ttin,dpsidR,nhamada/2+1,
+     1        thhtmp,dpsidR_tmp,epstri)
+         call IntTriCos(nttin/2+1,ttin,dpsidZ,nhamada/2+1,
+     1        thhtmp,dpsidZ_tmp,epstri)
+
+         ! output for hamada coordinate :
+         R_hamada((k-1)*nhamada+1:k*nhamada)=Rh_tmp(1:nhamada)
+         Z_hamada((k-1)*nhamada+1:k*nhamada)=Zh_tmp(1:nhamada)
+         psidott_hamada((k-1)*nhamada+1:k*nhamada)
+     1                     =psidott_tmp(1:nhamada)
+         dthdR_hamada((k-1)*nhamada+1:k*nhamada)
+     1                     =dthdR_tmp(1:nhamada)*dthhdth(i,1:nhamada)
+         dthdZ_hamada((k-1)*nhamada+1:k*nhamada)
+     1                     =dthdZ_tmp(1:nhamada)*dthhdth(i,1:nhamada)
+         dpsidR_hamada((k-1)*nhamada+1:k*nhamada)
+     1                     =dpsidR_tmp(1:nhamada)
+         dpsidZ_hamada((k-1)*nhamada+1:k*nhamada)
+     1                    =dpsidZ_tmp(1:nhamada)
+         
 
       end do
       do k=1, ncon
          do j=1,nttin
             kj=(k-1)*nttin+j
-            if (isNaN(gradpar(kj))) gradpar(kj)=0.0 !JPL
-            if (isNaN(alphapsi0(kj))) alphapsi0(kj)=0.0 !JPL
-            if (isNaN(dalphadpsi0(kj))) dalphadpsi0(kj)=0.0 !JPL           
             gbdriftphi=-bpol(kj)*dBdpsi(kj)
      1           -(psidott(kj)*dBdtheta(kj)/Rtrin(kj)**2)
             gbdrifttheta=fpolcon(k)*dBdpsi(kj)*(gradpar(kj)*btot(kj))
             gbdriftpsi=-fpolcon(k)*dBdtheta(kj)*(gradpar(kj)*btot(kj))
 
             alphaphi=1.0d0
-            alphatheta=-fpolcon(k)/(gradpar(kj)*btot(kj)*Rtrin(kj)**2)
-            alphapsi=-dfdpsi(k)*alphapsi0(kj)-fpolcon(k)*dalphadpsi0(kj)
-   
-            phitrin(kj)=alphapsi0(kj)*abs(fpolcon(k))/(2.0d0*pi) !JPL
-            if (isNaN(phitrin(kj))) phitrin(kj)=0.0 
+            alphatheta=-fpolcon(k)/(gradpar(kj)*btot(kj)*Rtrin(kj)**2)   !  dchi/dtheta of (33)
+            alphapsi=-dfdpsi(k)*alphapsi0(kj)-fpolcon(k)*dalphadpsi0(kj) !  dchi/dpsi of (33)
+        
             dalphadpsi(j)=alphapsi
+            dalphadth(j)=alphatheta
 c           write(*,*) 'alpahpsi',dfdpsi(k),alphapsi0(kj),fpolcon(k)
 c     1           ,dalphadpsi0(kj)
             gbdrift(kj)=(gbdriftphi*alphaphi+gbdrifttheta*alphatheta
@@ -4953,8 +6489,21 @@ c            write(*,*) 'cvdrift',cvdriftphi,alphaphi,cvdrifttheta
 c     1          ,alphatheta ,cvdriftpsi,alphapsi
 
          end do
+         thhtmp = thh(k,1:nhamada)
+         call IntTriCos(nttin/2+1,ttin,dalphadpsi,nhamada/2+1,
+     1        thhtmp,dchidpsi_tmp,epstri)
+         call IntTriCos(nttin/2+1,ttin,dalphadth,nhamada/2+1,
+     1        thhtmp,dchidth_tmp,epstri)
+         do i=2,nhamada/2
+            dchidpsi_tmp(nhamada+2-i)=dchidpsi_tmp(i)
+            dchidth_tmp(nhamada+2-i)=dchidth_tmp(i)
+         end do
+         ! output for hamada coordinate :
+         dchidpsi_hamada((k-1)*nhamada+1:k*nhamada)
+     1                     =dchidpsi_tmp(1:nhamada)
+         dchidth_hamada((k-1)*nhamada+1:k*nhamada)
+     1               =dchidth_tmp(1:nhamada)/dthhdth(i,1:nhamada)
 
-         !write(*,*) 'phitrin',k,phitrin((k-1)*nttin+1:(k)*nttin)
 c         write(*,*) 'temp5lag', dalphadpsi(1:nttin)
 
          call IntLag1np(nttin,ttin,dalphadpsi,kLag,nttin,ttin,
@@ -4965,27 +6514,26 @@ c     1     , ndt, tn, spdef, cftm
 c     2    ,dalphadpsi ,ddalphadpsidt)
 
          tshatlocal((k-1)*nttin+1:k*nttin)=ddalphadpsidt(1:nttin)
-     1     *(gradpar((k-1)*nttin+1:k*nttin)*btot((k-1)*nttin+1:k*nttin))
+     1     *(gradpar((k-1)*nttin+1:k*nttin)*btot((k-1)*nttin+1:k*nttin))  ! Eq (34)
       end do
 
 
       return
       end 
-
-
-      subroutine findsinglemetric(nin,Rin,Zin
+      
+      subroutine findsinglemetric_hamada(nin,Rin,Zin
      1     ,thin,psiRin,psiZin, fpolin
      2     ,nttin, ttin, ndt, tn, spdef, cftm
      3      ,sgradpar, sR,sZ,sBpR,sbtot,sbpol
-     4     ,alphapsi0,dBdtheta,spsidott, sdalphat)
+     4     ,alphapsi0,dBdtheta,spsidott, sdalphat
+     5     ,dthdR,dthdZ,dpsidR,dpsidZ,epstri)
 
-      use arrays, only: nt2, ksamp2, epstri
+      use arrays, only: nt2, ksamp2
       use arrays, only: isymud, Rmid, lambda, Rmaxis, Zmaxis
 
       implicit real*8 (a-h,o-z)
 c      save
-      real *8 Rin(*), Zin(*),thin(*)
-    
+      real *8 Rin(*), Zin(*),thin(*)    
       real *8 Rint(nin+1),dRdt(nin+1) ,Zint(nin+1)
       real *8 dZdt(nin+1),dldt(nin+1), ttintmp(nttin+1)
  
@@ -4998,13 +6546,17 @@ c      save
 
       real *8 ttin(*),sgradpar(*), sbtot(*)
       real *8 alphapsi0(*),dBdtheta(*),spsidott(*),sdalphat(*)
+      !spsidott = grad(psi) cdot grad(theta) at target theta
 
       real *8 tn(*), cftm(*), spdef(*),dttin(nttin),tfine1(nttin*ndt)
       real *8 tfine2(nttin*ndt)
+      real *8 dthdR(nttin),dthdZ(nttin) !wonjun
+      real *8 dpsidR(nttin),dpsidZ(nttin)
       real *8 tempfine5(nttin*ndt), tempfine8(nttin*ndt), chcoeff5(ndt)
       real *8 tempfine9(nttin*ndt),chcoeff9(ndt)
 
       real *8 sR(*),sZ(*),sBpR(*),sbpol(*)
+      real *8 :: epstri
 
       integer *4 i,j,k, kLag2, iw, itype, nint
 
@@ -5014,6 +6566,7 @@ c      save
       nint=nin !nt2*ksamp2/2
       pi = 4.0d0*datan(1.0d0)
 
+      ttintmp(1:nttin)=ttin(1:nttin)+thin(1)
       do i=1,nttin ! assumed ttin(1)=0
          if (i.ne.nttin) then
             dttin(i)=ttin(i+1)-ttin(i)
@@ -5021,7 +6574,7 @@ c      save
             dttin(i)=ttin(1)+2.0d0*pi-ttin(nttin)
          end if
 
-         tfine1((i-1)*ndt+1:i*ndt)=ttin(i)+tn(1:ndt)*dttin(i)
+         tfine1((i-1)*ndt+1:i*ndt)=ttintmp(i)+tn(1:ndt)*dttin(i)
 c         tfine2((i-1)*ndt+1:i*ndt)=ttin(i)+tn(1:ndt)*dttin(i)
 c     1        -dttin(i)/2.0d0
       end do
@@ -5063,6 +6616,7 @@ c         write(*,*) 'ttintmp',ttintmp(1:nttin),ttin(1:nttin)
      1     /(Rin(1:nin+1)-Rmaxis)   !dtheta/dZ
       temp3(1:nin+1)=(psiRin(1:nin+1)*temp2(1:nin+1)
      1     -psiZin(1:nin+1)*temp1(1:nin+1))/Rin(1:nin+1)/lambda !(grad phi times grad Psi) cdot grad theta)
+
       BpR(1:nin+1)=dsqrt(BpR2(1:nin+1)) !magnitude of BpR
       temp4(1:nin+1)=dsqrt(BpR2(1:nin+1))/Rin(1:nin+1) !magnitude of Bp
       temp5(1:nin+1)=dsqrt(BR2(1:nin+1))/Rin(1:nin+1) !magnitude of Btot
@@ -5092,32 +6646,34 @@ c      write(*,*) 'BpR23',(BpR2(1:nin+1))
 c      write(*,*) 'Rin3',Rin(1:nin+1)
 c      write(*,*) 'Bp3',dsqrt(BpR2(1:nin+1))/Rin(1:nin+1)
 c      write(*,*) 'Btot3',temp1(1:nin+1),lambda
-
+      
+      ! use nth2 instead of nttin, use thh2 instead of ttin
       if (isymud.eq.1) then
   
          call IntTriCos(nin/2+1,thintmp,Rin,nttin/2+1,
-     1        ttin,sR,epstri)
+     1        ttintmp,sR,epstri)
 c         write(*,*) 'Rin-sR1',thintmp(1:nin/2+1)
 c         write(*,*) 'Rin-sR2',Rin(1:nin/2+1)
 c         write(*,*) 'Rin-sR3',ttin(1:nttin/2+1)
 c         write(*,*) 'Rin-sR4',sR(1:nttin/2+1)
          call IntTriCos(nin/2+1,thintmp,Zin,nttin/2+1,
-     1        ttin,sZ,epstri)
+     1        ttintmp,sZ,epstri)
 c         write(*,*) 'Zin-sR1',thintmp(1:nin/2+1)
 c         write(*,*) 'Zin-sR2',Zin(1:nin/2+1)
 c         write(*,*) 'Zin-sR3',ttin(1:nttin/2+1)
 c         write(*,*) 'Zin-sR4',sZ(1:nttin/2+1)
          call IntTriCos(nin/2+1,thintmp,BpR,nttin/2+1,
-     1        ttin,sBpR,epstri) 
+     1        ttintmp,sBpR,epstri) 
          call IntTriCos(nin/2+1,thintmp,temp4,nttin/2+1,
-     1        ttin,sbpol,epstri) 
+     1        ttintmp,sbpol,epstri) 
          call IntTriCos(nin/2+1,thintmp,temp5,nttin/2+1,
-     1        ttin,sbtot,epstri) !assumed symmetric ttin
+     1        ttintmp,sbtot,epstri) !assumed symmetric ttin
          
          call IntTriCos(nin/2+1,thintmp,temp6,nttin/2+1,
-     1        ttin,sgradpar,epstri) 
+     1        ttintmp,sgradpar,epstri) 
          call IntTriCos(nin/2+1,thintmp,temp7,nttin/2+1,
-     1        ttin,spsidott,epstri) 
+     1        ttintmp,spsidott,epstri) 
+       !spsidott = grad(psi) cdot grad(theta) at target theta
          
 
          call IntTriCos(nin/2+1,thintmp,temp8,nttin*ndt/2+1,
@@ -5126,6 +6682,16 @@ c         write(*,*) 'Zin-sR4',sZ(1:nttin/2+1)
      1        tfine1,tempfine5,epstri) 
          call IntTriCos(nin/2+1,thintmp,temp9,nttin*ndt/2+1,
      1        tfine1,tempfine9,epstri) 
+         
+         ! grad(theta), grad(psi) 
+         call IntTriCos(nin/2+1,thintmp,temp1,nttin/2+1,
+     1        ttin,dthdR,epstri) 
+         call IntTriCos(nin/2+1,thintmp,temp2,nttin/2+1,
+     1        ttin,dthdZ,epstri)
+         call IntTriCos(nin/2+1,thintmp,psiRin(1:nin+1)/lambda,
+     1        nttin/2+1,ttin,dpsidR,epstri)
+         call IntTriCos(nin/2+1,thintmp,psiZin(1:nin+1)/lambda,
+     1        nttin/2+1,ttin,dpsidZ,epstri)
 
          do i=2,nttin/2
             sR(nttin+2-i)=sR(i)
@@ -5135,6 +6701,10 @@ c         write(*,*) 'Zin-sR4',sZ(1:nttin/2+1)
             sbtot(nttin+2-i)=sbtot(i)
             sgradpar(nttin+2-i)=sgradpar(i)
             spsidott(nttin+2-i)=spsidott(i)
+            dthdR(nttin+2-i)=-dthdR(i)
+            dthdZ(nttin+2-i)=dthdZ(i)
+            dpsidR(nttin+2-i)=dpsidR(i)
+            dpsidZ(nttin+2-i)=-dpsidZ(i)
          end do
 
          do i=2,nttin*ndt/2+1
@@ -5215,6 +6785,444 @@ c         write(*,*) 'Zin-sR4',sZ(1:nttin)
             sdalphat(i)=dtempfine9/dttin(i)
          end do
       end if ! end if isymud.eq.1
+    
+c      Jac(1:nttin)=1.0d0/(sbtot(1:nttin)*sgradpar(1:nttin))
+c      alphat(1:nttin)=fpolin*Jac(1:nttin)/sR(1:nttin)**2.0d0
+
+      alphapsi0(1)=0.0d0
+      do i=1,nttin
+         dalphapsi0=0.0d0
+         do j=1,ndt
+            dalphapsi0=dalphapsi0+spdef(j)*tempfine8((i-1)*ndt+j)
+         end do
+         dalphapsi0=dalphapsi0*dttin(i)/2.0d0*(2.0d0*pi)
+         alphapsi0(i+1)= alphapsi0(i)+ dalphapsi0
+      end do
+
+    
+
+c      write(*,*) 'sbtot',sbtot(1:nttin)
+c      write(*,*) 'sgradpar',sgradpar(1:nttin)
+c      write(*,*) 'fout2',fout2
+      return 
+
+      end
+      
+      subroutine calmetric(ncon,psicon,Rcon,Zcon,tmaxp,icon,psiRcon
+     1        ,psiZcon,fpolcon,dfdpsi,dpdpsi,dBdpsi,dalphadpsi0
+     2     ,nttin,ttin,gradpar,Rtrin,Ztrin,bpR,btot,bpol,gbdrift
+     3     ,gbdrift0,cvdrift,cvdrift0,tshatlocal,dalphatt,phitrin
+     4     ,psidott,tdott,sgradrho2)
+
+      use arrays, only:  nt2, ksamp2, dpsidrho,epsLag, kLag
+
+      implicit real*8 (a-h,o-z)
+      save
+
+      parameter (ndt=8)
+
+      real *8 psicon(*),psiRcon(*),psiZcon(*), BpR(*)
+      real *8 Rcon(*), Zcon(*),tmaxp(*),ttin(*), Rtrin(*), Ztrin(*)
+      real *8 psiRin(nt2*ksamp2+1),psiZin(nt2*ksamp2+1)
+      real *8 Rin(nt2*ksamp2+1), Zin(nt2*ksamp2+1),thin(nt2*ksamp2+1)
+      real *8 fpolcon(*),dfdpsi(*),dpdpsi(*),dBdpsi(*),dalphadpsi0(*)
+      real *8 gradpar(*), btot(*),bpol(*), gbdrift(*),gbdrift0(*)
+      real *8 cvdrift(*),cvdrift0(*),tshatlocal(*),dalphatt(*)
+      real *8 phitrin(*),sgradrho2(*)
+      real *8 sgradpar(nttin),sbtot(nttin),sbpR(nttin),stdott(nttin)
+      real *8 sRtrin(nttin),sZtrin(nttin),sbpol(nttin),salphapsi0(nttin)
+      real *8 spsidott(nttin),sdBdtheta(nttin),sdalphat(nttin)
+      real *8 dalphadpsi(nttin), ddalphadpsidt(nttin),temp(nttin)
+
+      real *8 alphapsi0(nttin*ncon)
+      real *8 psidott(nttin*ncon),tdott(nttin*ncon),dBdtheta(nttin*ncon)
+
+      real *8 tn(ndt),cftm(ndt*ndt)
+      real *8 spbx(ndt*ndt), spxb(ndt*ndt), spdef(ndt)
+c      real *8 fint1(ncon),fint2(ncon), fint3(ncon), chcoeff(ncon)
+c      real *8 dfint1(ncon), lambda
+      real *8 pi, mu
+      integer *4  icon(*)
+      integer i,j,k
+
+c      ksamp3=ksamp2/4 
+      pi=4.0d0*datan(1.0d0)
+      mu=4.0d-7*pi
+
+      !to calculate integral from 0 to theta
+      call chsetupq(ndt, tn, cftm, spbx, spxb, spdef) 
+      tn(1:ndt)=1.0d0-tn(1:ndt) 
+c      write(*,*) 'tn',tn(1:ncon)
+c      write(*,*) 'psiRintot',psiRcon(1:ncon*ksamp3)
+      do k=1, ncon
+         istart=icon(k)
+         iend=icon(k+1)-1
+         nin=iend-istart+1
+         Rin(1:nin)=Rcon(istart:iend)
+         Zin(1:nin)=Zcon(istart:iend)
+         thin(1:nin)=tmaxp(istart:iend)
+         psiRin(1:nin)=psiRcon(istart:iend)
+         psiZin(1:nin)=psiZcon(istart:iend)
+         Rin(nin+1)=Rcon(istart)
+         Zin(nin+1)=Zcon(istart)
+         thin(nin+1)=tmaxp(istart)+2.0d0*pi
+         psiRin(nin+1)=psiRcon(istart)
+         psiZin(nin+1)=psiZcon(istart)
+
+         call findsinglemetric(nin,Rin, Zin
+     1     ,thin, psiRin, psiZin, fpolcon(k)
+     2     ,nttin, ttin, ndt, tn, spdef, cftm
+     3     ,sgradpar, sRtrin, sZtrin,sbpR,sbtot,sbpol
+     4     ,salphapsi0,sdBdtheta,spsidott,sdalphat,stdott
+     5     ,sgradrho2(k))
+         Rtrin((k-1)*nttin+1:k*nttin)=sRtrin(1:nttin)
+         Ztrin((k-1)*nttin+1:k*nttin)=sZtrin(1:nttin)
+         BpR((k-1)*nttin+1:k*nttin)=sbpR(1:nttin)
+         bpol((k-1)*nttin+1:k*nttin)=sbpol(1:nttin)
+         gradpar((k-1)*nttin+1:k*nttin)=sgradpar(1:nttin)
+         btot((k-1)*nttin+1:k*nttin)=sbtot(1:nttin)
+         alphapsi0((k-1)*nttin+1:k*nttin)=salphapsi0(1:nttin)
+         dBdtheta((k-1)*nttin+1:k*nttin)=sdBdtheta(1:nttin)
+         psidott((k-1)*nttin+1:k*nttin)=spsidott(1:nttin)
+         dalphatt((k-1)*nttin+1:k*nttin)=sdalphat(1:nttin)
+         tdott((k-1)*nttin+1:k*nttin)=stdott(1:nttin)
+
+      end do
+      do k=1, ncon
+         do j=1,nttin
+            kj=(k-1)*nttin+j
+            if (isNaN(gradpar(kj))) gradpar(kj)=0.0 !JPL
+            if (isNaN(alphapsi0(kj))) alphapsi0(kj)=0.0 !JPL
+            if (isNaN(dalphadpsi0(kj))) dalphadpsi0(kj)=0.0 !JPL           
+            gbdriftphi=-bpol(kj)*dBdpsi(kj)
+     1           -(psidott(kj)*dBdtheta(kj)/Rtrin(kj)**2)
+            gbdrifttheta=fpolcon(k)*dBdpsi(kj)*(gradpar(kj)*btot(kj))
+            gbdriftpsi=-fpolcon(k)*dBdtheta(kj)*(gradpar(kj)*btot(kj))
+
+            alphaphi=1.0d0
+            alphatheta=-fpolcon(k)/(gradpar(kj)*btot(kj)*Rtrin(kj)**2)
+            alphapsi=-dfdpsi(k)*alphapsi0(kj)-fpolcon(k)*dalphadpsi0(kj)
+   
+            phitrin(kj)=alphapsi0(kj)*abs(fpolcon(k))/(2.0d0*pi) !JPL
+            if (isNaN(phitrin(kj))) phitrin(kj)=0.0 
+            dalphadpsi(j)=alphapsi
+c           write(*,*) 'alpahpsi',dfdpsi(k),alphapsi0(kj),fpolcon(k)
+c     1           ,dalphadpsi0(kj)
+            gbdrift(kj)=(gbdriftphi*alphaphi+gbdrifttheta*alphatheta
+     1           +gbdriftpsi*alphapsi)/dpsidrho(k)
+            gbdrift0(kj)=gbdriftpsi/dpsidrho(k)
+
+c            write(*,*) 'gbdrift',gbdriftphi,alphaphi,gbdrifttheta
+c     1          ,alphatheta ,gbdriftpsi,alphapsi
+
+            cvdriftphi=-bpol(kj)*(dBdpsi(kj)+mu*dpdpsi(k)/btot(kj))
+     1           -(psidott(kj)*dBdtheta(kj)/Rtrin(kj)**2)
+            cvdrifttheta=fpolcon(k)*(dBdpsi(kj)+mu*dpdpsi(k)/btot(kj))
+     1           *(gradpar(kj)*btot(kj))
+            cvdriftpsi=-fpolcon(k)*dBdtheta(kj)*(gradpar(kj)*btot(kj))
+
+            cvdrift(kj)=(cvdriftphi*alphaphi+cvdrifttheta*alphatheta
+     1           +cvdriftpsi*alphapsi)/dpsidrho(k)
+            cvdrift0(kj)=cvdriftpsi/dpsidrho(k)
+c            write(*,*) 'cvdrift',cvdriftphi,alphaphi,cvdrifttheta
+c     1          ,alphatheta ,cvdriftpsi,alphapsi
+
+         end do
+
+         !write(*,*) 'phitrin',k,phitrin((k-1)*nttin+1:(k)*nttin)
+c         write(*,*) 'temp5lag', dalphadpsi(1:nttin)
+
+         call IntLag1np(nttin,ttin,dalphadpsi,kLag,nttin,ttin,
+     1        temp,ddalphadpsidt,epsLag)   !alpha is not periodic 
+c         write(*,*) 'temp5lagder',ddalphadpsidt(1:nttin)
+c         call findddalphadpsidt(nin,thin,nttin, ttin
+c     1     , ndt, tn, spdef, cftm
+c     2    ,dalphadpsi ,ddalphadpsidt)
+
+         tshatlocal((k-1)*nttin+1:k*nttin)=ddalphadpsidt(1:nttin)
+     1     *(gradpar((k-1)*nttin+1:k*nttin)*btot((k-1)*nttin+1:k*nttin))
+      end do
+
+
+      return
+      end 
+
+
+      subroutine findsinglemetric(nin,Rin,Zin
+     1     ,thin,psiRin,psiZin, fpolin
+     2     ,nttin, ttin, ndt, tn, spdef, cftm
+     3      ,sgradpar, sR,sZ,sBpR,sbtot,sbpol
+     4     ,alphapsi0,dBdtheta,spsidott, sdalphat,stdott,fout3)
+
+      use arrays, only: nt2, ksamp2, epstri, nchq
+      use arrays, only: isymud, Rmid, lambda, Rmaxis, Zmaxis
+
+      implicit real*8 (a-h,o-z)
+c      save
+      real *8 Rin(*), Zin(*),thin(*)
+    
+      real *8 Rint(nin+1),dRdt(nin+1) ,Zint(nin+1)
+      real *8 dZdt(nin+1),dldt(nin+1), ttintmp(nttin+1)
+ 
+      real *8 Rintmp(nin+1), Zintmp(nin+1),thintmp(nin+1)
+      real *8 psiRin(*),psiZin(*), BpR2(nin+1),BR2(nin+1),BpR(nin+1)
+      real *8 temp0(nin+1), temp1(nin+1), temp2(nin+1)
+      real *8 temp3(nin+1), temp4(nin+1), temp5(nin+1), temp6(nin+1)
+      real *8 temp7(nin+1), temp8(nin+1), temp9(nin+1),temp10(nin+1)
+      real *8 temp11(nin+1),temp12(nin+1)
+      real *8 gradparin(nin+1), Jac(nin+1),Jac2(nin+1),gradrho2(nin+1)
+
+      real *8 ttin(*),sgradpar(*), sbtot(*), stdott(*)
+      real *8 alphapsi0(*),dBdtheta(*),spsidott(*),sdalphat(*)
+
+      real *8 tn(*), cftm(*), spdef(*),dttin(nttin),tfine1(nttin*ndt)
+      real *8 tfine2(nttin*ndt)
+      real *8 tempfine5(nttin*ndt), tempfine8(nttin*ndt), chcoeff5(ndt)
+      real *8 tempfine9(nttin*ndt),chcoeff9(ndt)
+
+      real *8 sR(*),sZ(*),sBpR(*),sbpol(*)
+      real *8 fout1,fout2,fout3
+
+      integer *4 i,j,k, kLag2, iw, itype, nint
+
+      save
+
+      !psi in this routine is normalized one to the range from 0 to 1
+      nint=nin !nt2*ksamp2/2
+      pi = 4.0d0*datan(1.0d0)
+
+      ttintmp(1:nttin)=ttin(1:nttin)+thin(1)
+
+      do i=1,nttin ! assumed ttin(1)=0
+         if (i.ne.nttin) then
+            dttin(i)=ttin(i+1)-ttin(i)
+         else
+            dttin(i)=ttin(1)+2.0d0*pi-ttin(nttin)
+         end if
+
+         tfine1((i-1)*ndt+1:i*ndt)=ttintmp(i)+tn(1:ndt)*dttin(i)
+c         tfine2((i-1)*ndt+1:i*ndt)=ttin(i)+tn(1:ndt)*dttin(i)
+c     1        -dttin(i)/2.0d0
+      end do
+      
+c      write(*,*) 'tfine1',tfine1(1:nttin*ndt)
+c      do j=1,ndt
+c         if (tfine2(j).lt.0.0d0) then
+c            tfine2(j)=tfine2(j)+2.0d0*pi
+c         end if
+c      end do
+     
+      kLag2=4
+      if (isymud.eq.1) then
+         do i=1,nin+1
+            thintmp(i)=thin(i)
+            Rintmp(i)=Rin(i)
+            zintmp(i)=zin(i)
+         end do
+      else
+         do i=1,nin+1
+            thintmp(i)=thin(i)/2.0d0
+            Rintmp(i)=Rin(i)
+            zintmp(i)=zin(i)
+         end do
+         tfine1(1:nttin*ndt)=tfine1(1:nttin*ndt)/2.0d0
+         ttintmp(1:nttin)=ttintmp(1:nttin)/2.0d0
+c         write(*,*) 'ttintmp',ttintmp(1:nttin),ttin(1:nttin)
+      end if
+ 
+      BpR2(1:nin+1)=(psiRin(1:nin+1)**2.0d0+psiZin(1:nin+1)**2.0d0)
+     1     /lambda**2           
+
+      BR2(1:nin+1)= BpR2(1:nin+1)+fpolin**2.0d0
+      temp0(1:nin+1)=1.0d0/
+     1     (((Zin(1:nin+1)-Zmaxis)/(Rin(1:nin+1)-Rmaxis))**2.0d0+1.0d0)
+      temp1(1:nin+1)=-temp0(1:nin+1)*(Zin(1:nin+1)-Zmaxis)
+     1     /(Rin(1:nin+1)-Rmaxis)**2.0d0   !dtheta/dR
+      temp2(1:nin+1)=temp0(1:nin+1)
+     1     /(Rin(1:nin+1)-Rmaxis)   !dtheta/dZ
+      temp3(1:nin+1)=(psiRin(1:nin+1)*temp2(1:nin+1)
+     1     -psiZin(1:nin+1)*temp1(1:nin+1))/Rin(1:nin+1)/lambda !(grad phi times grad Psi) cdot grad theta)
+      BpR(1:nin+1)=dsqrt(BpR2(1:nin+1)) !magnitude of BpR
+      temp4(1:nin+1)=dsqrt(BpR2(1:nin+1))/Rin(1:nin+1) !magnitude of Bp
+      temp5(1:nin+1)=dsqrt(BR2(1:nin+1))/Rin(1:nin+1) !magnitude of Btot
+
+      temp6(1:nin+1)=temp3(1:nin+1)/temp5  ! b dot grad theta
+
+      temp7(1:nin+1)=(psiRin(1:nin+1)*temp1(1:nin+1)
+     1     +psiZin(1:nin+1)*temp2(1:nin+1))/lambda     !grad Psi cdot grad theta
+
+      
+
+      !write(*,*) 'gradthe2',temp1(1:nin+1)**2.0d0+temp2(1:nin+1)**2.0d0
+      !write(*,*) 'J/Bp2',temp3(nin/2)**2.0d0/temp4(nin/2)**2.0d0 
+      ! write(*,*) 'psiRZ2',(psiRin(nin/2)**2.0d0+psiZin(nin/2)**2.0d0)
+      ! write(*,*) 'BpR2',BpR(nin/2)**2.0d0*lambda**2.0d0 
+
+c      write(*,*) 'psiRin, temp1-1',psiRin(1:nin+1)
+c      write(*,*) 'psiRin, temp1-2',temp2(1:nin+1)
+c      write(*,*) 'psiRin, temp1-31',psiZin(1:nin+1)
+c      write(*,*) 'psiRin, temp1-32',temp1(1:nin+1)
+      temp8(1:nin+1)=1.0d0/temp3(1:nin+1)
+     1       /Rin(1:nin+1)**2                    ! 1/(B dot grad theta)/R^2
+
+      do i=1,nin+1
+         if (BpR2(i).eq.0) then
+            temp9(i)=0.0d0
+         else
+            temp9(i)=fpolin*temp8(i)*temp7(i)/BpR2(i)
+         end if
+      end do
+
+      temp10(1:nin+1)=temp1(1:nin+1)**2.0d0+temp2(1:nin+1)**2.0d0
+
+      temp11(1:nin+1)=BpR2(1:nin+1)*lambda**2.0d0/abs(temp3(1:nin+1))
+      temp12(1:nin+1)=abs(1.0d0/temp3(1:nin+1))
+      
+c      write(*,*) 'BpR23',(BpR2(1:nin+1))
+c      write(*,*) 'Rin3',Rin(1:nin+1)
+c      write(*,*) 'Bp3',dsqrt(BpR2(1:nin+1))/Rin(1:nin+1)
+c      write(*,*) 'Btot3',temp1(1:nin+1),lambda
+
+      if (isymud.eq.1) then
+         call IntTriCos(nin/2+1,thintmp,Rin,nttin/2+1,
+     1        ttintmp,sR,epstri)
+         write(*,*) 'Rin-sR1',thintmp(1:nin/2+1)
+         write(*,*) 'Rin-sR2',Rin(1:nin/2+1)
+         write(*,*) 'Rin-sR3',ttin(1:nttin/2+1)
+         write(*,*) 'Rin-sR4',sR(1:nttin/2+1)
+         call IntTriCos(nin/2+1,thintmp,Zin,nttin/2+1,
+     1        ttintmp,sZ,epstri)
+         write(*,*) 'Zin-sR1',thintmp(1:nin/2+1)
+         write(*,*) 'Zin-sR2',Zin(1:nin/2+1)
+         write(*,*) 'Zin-sR3',ttin(1:nttin/2+1)
+         write(*,*) 'Zin-sR4',sZ(1:nttin/2+1)
+         call IntTriCos(nin/2+1,thintmp,BpR,nttin/2+1,
+     1        ttintmp,sBpR,epstri) 
+         call IntTriCos(nin/2+1,thintmp,temp4,nttin/2+1,
+     1        ttintmp,sbpol,epstri) 
+         call IntTriCos(nin/2+1,thintmp,temp5,nttin/2+1,
+     1        ttintmp,sbtot,epstri) !assumed symmetric ttin
+         call IntTriCos(nin/2+1,thintmp,temp11,nttin/2+1,
+     1        ttintmp,gradrho2,epstri)
+         call IntTriCos(nin/2+1,thintmp,temp12,nttin/2+1,
+     1        ttintmp,Jac,epstri)
+
+         
+         call IntTriCos(nin/2+1,thintmp,temp6,nttin/2+1,
+     1        ttintmp,sgradpar,epstri) 
+         call IntTriCos(nin/2+1,thintmp,temp7,nttin/2+1,
+     1        ttintmp,spsidott,epstri)
+         call IntTriCos(nin/2+1,thintmp,temp10,nttin/2+1,
+     1        tfine1,stdott,epstri)
+
+         
+
+         call IntTriCos(nin/2+1,thintmp,temp8,nttin*ndt/2+1,
+     1        tfine1,tempfine8,epstri) 
+         call IntTriCos(nin/2+1,thintmp,temp5,nttin*ndt/2+1,
+     1        tfine1,tempfine5,epstri) 
+         call IntTriCos(nin/2+1,thintmp,temp9,nttin*ndt/2+1,
+     1        tfine1,tempfine9,epstri)
+
+
+
+         do i=2,nttin/2
+            sR(nttin+2-i)=sR(i)
+            sZ(nttin+2-i)=-sZ(i)
+            sbpR(nttin+2-i)=sbpR(i)
+            sbpol(nttin+2-i)=sbpol(i)
+            sbtot(nttin+2-i)=sbtot(i)
+            sgradpar(nttin+2-i)=sgradpar(i)
+            spsidott(nttin+2-i)=spsidott(i)
+            stdott(nttin+2-i)=stdott(i)
+            gradrho2(nttin+2-i)=gradrho2(i)
+            Jac(nttin+2-i)=Jac(i)
+         end do
+
+         do i=2,nttin*ndt/2+1
+            tempfine5(nttin*ndt+2-i)=tempfine5(i)
+            tempfine8(nttin*ndt+2-i)=tempfine8(i)
+            tempfine9(nttin*ndt+2-i)=tempfine9(i)
+         end do
+
+         do i=1,nttin/2
+            call chftransq(chcoeff5,tempfine5((i-1)*ndt+1), ndt, cftm)
+            call chderiv(0.0d0, ndt, chcoeff5,dtempfine5)
+            dBdtheta(i)=dtempfine5/dttin(i)
+         end do
+         call chftransq(chcoeff5,tempfine5((nttin/2-1)*ndt+1),ndt, cftm)
+         call chderiv(1.0d0, ndt, chcoeff5,dtempfine5)
+         dBdtheta(nttin/2+1)=dtempfine5/dttin(i)
+         do i=2,nttin/2
+            dBdtheta(nttin+2-i)=-dBdtheta(i)
+         end do
+
+         do i=1,nttin/2
+            call chftransq(chcoeff9,tempfine9((i-1)*ndt+1), ndt, cftm)
+            call chderiv(0.0d0, ndt, chcoeff9,dtempfine9)
+            sdalphat(i)=dtempfine9/dttin(i)
+         end do
+         call chftransq(chcoeff9,tempfine9((nttin/2-1)*ndt+1),ndt, cftm)
+         call chderiv(1.0d0, ndt, chcoeff9,dtempfine9)
+         sdalphat(nttin/2+1)=dtempfine9/dttin(i)
+         do i=2,nttin/2
+            sdalphat(nttin+2-i)=sdalphat(i)
+         end do
+         sdalphat(1:nttin)=-sdalphat(1:nttin)
+c         write(*,*) 'temp9',(temp9(1:nin+1))
+c         write(*,*) 'tempfine9',(tempfine9(1:nttin))
+c         write(*,*) 'sdalphat',sdalphat(1:nttin)
+      else  ! if isymud is not 1 (up-down assymmetric)
+      
+         call IntTriCos(nin+1,thintmp,Rin,nttin,
+     1        ttintmp,sR,epstri)
+         call IntTriCos(nin+1,thintmp,Zin,nttin,
+     1        ttintmp,sZ,epstri)
+         write(*,*) 'Rin-sR1',thintmp(1:nin+1)
+         write(*,*) 'Rin-sR2',Rin(1:nin+1)
+         write(*,*) 'Rin-sR3',ttintmp(1:nttin)
+         write(*,*) 'Rin-sR4',sR(1:nttin)
+
+         write(*,*) 'Zin-sR1',thintmp(1:nin+1)
+         write(*,*) 'Zin-sR2',Zin(1:nin+1)
+         write(*,*) 'Zin-sR3',ttintmp(1:nttin)
+         write(*,*) 'Zin-sR4',sZ(1:nttin)
+
+         call IntTriCos(nin+1,thintmp,BpR,nttin,
+     1        ttintmp,sBpR,epstri) 
+         call IntTriCos(nin+1,thintmp,temp4,nttin,
+     1        ttintmp,sbpol,epstri) 
+         call IntTriCos(nin+1,thintmp,temp5,nttin,
+     1        ttintmp,sbtot,epstri) !assumed symmetric ttin
+         
+         call IntTriCos(nin+1,thintmp,temp6,nttin,
+     1        ttintmp,sgradpar,epstri) 
+         call IntTriCos(nin+1,thintmp,temp7,nttin,
+     1        ttintmp,spsidott,epstri) 
+         call IntTriCos(nin+1,thintmp,temp10,nttin,
+     1        ttintmp,stdott,epstri) 
+         call IntTriCos(nin+1,thintmp,temp11,nttin,
+     1        ttintmp,gradrho2,epstri)
+         call IntTriCos(nin+1,thintmp,temp12,nttin,
+     1        ttintmp,Jac,epstri) 
+         
+         call IntTriCos(nin+1,thintmp,temp8,nttin*ndt,
+     1        tfine1,tempfine8,epstri) 
+         call IntTriCos(nin+1,thintmp,temp5,nttin*ndt,
+     1        tfine1,tempfine5,epstri) 
+         call IntTriCos(nin+1,thintmp,temp9,nttin*ndt,
+     1        tfine1,tempfine9,epstri) 
+         do i=1,nttin
+            call chftransq(chcoeff5,tempfine5((i-1)*ndt+1), ndt, cftm)
+            call chderiv(0.0d0, ndt, chcoeff5,dtempfine5)
+            dBdtheta(i)=dtempfine5/dttin(i)
+         end do
+         do i=1,nttin 
+            call chftransq(chcoeff9,tempfine9((i-1)*ndt+1), ndt, cftm)
+            call chderiv(0.0d0, ndt, chcoeff9,dtempfine9)
+            sdalphat(i)=dtempfine9/dttin(i)
+         end do
+      end if ! end if isymud.eq.1
 
 c      Jac(1:nttin)=1.0d0/(sbtot(1:nttin)*sgradpar(1:nttin))
 c      alphat(1:nttin)=fpolin*Jac(1:nttin)/sR(1:nttin)**2.0d0
@@ -5228,6 +7236,20 @@ c      alphat(1:nttin)=fpolin*Jac(1:nttin)/sR(1:nttin)**2.0d0
          alphapsi0(i+1)= alphapsi0(i)+ dalphapsi0
       end do
 
+
+      fout1=0.0d0
+      fout2=0.0d0
+      do i=1,nttin
+         fout1=fout1+gradrho2(i)
+         fout2=fout2+Jac(i)   
+      end do
+      fout1=fout1*2.0d0*pi/nttin
+      fout2=fout2*2.0d0*pi/nttin
+      fout3=fout1/fout2
+      write(*,*) '====temp11',temp11
+      write(*,*) '====gradrho2',gradrho2
+      write(*,*) 'Jac',Jac
+      write(*,*) 'fout3',fout1,fout2,fout3
 
 c      write(*,*) 'sbtot',sbtot(1:nttin)
 c      write(*,*) 'sgradpar',sgradpar(1:nttin)
@@ -5286,7 +7308,6 @@ c      write(*,*) 'psiRintot',psiRcon(1:ncon*ksamp3)
          psiRin(nin+1)=psiRcon(istart)
          psiZin(nin+1)=psiZcon(istart)
 
-
          call findsinglemetric0(nin,Rin, Zin
      1     ,thin, psiRin, psiZin, fpolcon(k)
      2     ,nttin, ttin, ndt, tn, spdef, cftm
@@ -5337,6 +7358,8 @@ c      save
       nint=nin !nt2*ksamp2/2
       pi = 4.0d0*datan(1.0d0)
 
+
+      ttintmp(1:nttin)=ttin(1:nttin)+thin(1)
       do i=1,nttin ! assumed ttin(1)=0
          if (i.ne.nttin) then
             dttin(i)=ttin(i+1)-ttin(i)
@@ -5344,7 +7367,7 @@ c      save
             dttin(i)=ttin(1)+2.0d0*pi-ttin(nttin)
          end if
 
-         tfine((i-1)*ndt+1:i*ndt)=ttin(i)+tn(1:ndt)*dttin(i)
+         tfine((i-1)*ndt+1:i*ndt)=ttintmp(i)+tn(1:ndt)*dttin(i)
       end do
 
       kLag2=4
@@ -5392,9 +7415,9 @@ c      write(*,*) 'Btot3',temp1(1:nin+1),lambda
   
      
          call IntTriCos(nin/2+1,thintmp,temp5,nttin/2+1,
-     1        ttin,sbtot,epstri) !assumed symmetric ttin
+     1        ttintmp,sbtot,epstri) !assumed symmetric ttin
          call IntTriCos(nin/2+1,thintmp,temp8,nttin/2+1,
-     1        ttin,temp88,epstri) 
+     1        ttintmp,temp88,epstri) 
          call IntTriCos(nin/2+1,thintmp,temp8,nttin*ndt/2+1,
      1        tfine,tempfine8,epstri) 
  
@@ -5886,6 +7909,7 @@ c      write(*,*) 'chcoeff5',chcoeff5(1:ncon)
       B0=dabs(fpoledge/Rmid) !*2*pi
       write(*,*) 'Rmid',Rmid,B0
 c      B0=dabs(fpol0/Rmid)
+!     Batmaxis=abs(fpol0/Rmaxis)
       betaTot= 2.0d0*mu*Presavg/B0**2
       psi0 = (1.0d0/lambda)+psiB
       write(fout,*) '*************************************'
@@ -6627,7 +8651,7 @@ c           write(*,*) 'tpsitmp',trhotmp
 
          end if
       end do
-      write(*,*) 'tpsi',tpsi(1:ntpsi)
+      !write(*,*) 'tpsi',tpsi(1:ntpsi)
          
       return
       end 
@@ -7054,6 +9078,196 @@ c      write(*,*) 'fpol',fpolcon(1:ncon)
 
       return
       end
+
+
+
+      subroutine writeonedtotalpi(plmvol0,tvol,tarea0,tarea,
+     1       tdvdpsi,tqmil,tkappamil,tdeltamil,tshatmil,tgradrho2)
+         
+
+      use arrays, only: ntpsi,nttin,tpsi,psiB,lambda,B0vac,Rmaxis
+      use arrays, only: R0,reps,dpsiidrhoch,nchq
+
+      implicit none
+
+      real *8 tvol(ntpsi),plmvol0,tdvdpsi(ntpsi),tqmil(ntpsi)
+      real *8 tkappamil(ntpsi),tdeltamil(ntpsi),tshatmil(ntpsi)
+      real *8 TotVol,Vol(ntpsi),dVoldpsi(ntpsi),q(ntpsi)
+      real *8 tgradrho2(ntpsi), gradrho2c(ntpsi-1)
+      real *8 kappa(ntpsi),dVoldpsic(ntpsi-1),qc(ntpsi-1),dVol(ntpsi)
+      real *8 kappac(ntpsi-1),shatc(ntpsi-1),psi(ntpsi),rpsi(ntpsi)
+      real *8 tarea0,tarea(ntpsi),dpsidrc(ntpsi-1),psic(ntpsi-1)
+
+      integer *4 ecom_out1D_test,i,npsi,npsic
+
+      character(len=10) fmt_rvec_nthe
+      character(len=10) fmt_rvec_npsi
+      character(len=10) fmt_rvec_npsic
+      character(len=10) fmt_1E0
+      character(len=10) fmt_3E0
+      character(len=10) fmt_2E0
+      character(len=10) fmt_2I0
+      character(len=10) fmt_tmp
+
+      ecom_out1D_test = 11
+      npsi=(ntpsi+1)/2
+      npsic=npsi-1
+
+      tdvdpsi=-tdvdpsi/lambda
+
+      TotVol=plmvol0
+      do i=1,npsi
+         vol(i)=tvol(2*i-1)
+         dvoldpsi(i)=tdvdpsi(2*i-1)
+         q(i)=tqmil(2*i-1)
+         kappa(i)=tkappamil(2*i-1)
+         psi(i)=1.0d0-tpsi(2*i-1)
+         rpsi(i)=(tpsi(2*i-1)/lambda+psiB)/B0vac/Rmaxis**2.0d0
+      end do
+
+      do i=2,npsi-1
+         dvol(i)=tvol(2*i)-tvol(2*(i-1))
+      end do
+         dvol(1)=tvol(2)-tvol(1)
+         dvol(npsi)=tvol(ntpsi)-tvol(ntpsi-1)
+         
+      do i=1,npsi-1
+         psic(i)=1.0d0-tpsi(2*i)
+         dpsidrc(i)=tarea(2*i)/tdvdpsi(2*i)
+         dvoldpsic(i)=tdvdpsi(2*i)
+         qc(i)=tqmil(2*i)
+         kappac(i)=tkappamil(2*i)
+         shatc(i)=tshatmil(2*i)
+         gradrho2c(i)=tgradrho2(2*i)
+      end do
+      !write(*,*)'=tdvdpsi=',tdvdpsi
+      !write(*,*)'=tdvdpsi=',tarea
+      write(*,*) 'tgradrho2',tgradrho2
+
+
+      write(fmt_rvec_npsi,'(A,I3,A)') '(', npsi, 'e16.9)'
+      write(fmt_rvec_npsic,'(A,I3,A)') '(', npsic, 'e16.9)'
+      write(fmt_1E0, '(A)') '(1e16.9)'
+      write(fmt_2E0, '(A)') '(2e16.9)'
+      write(fmt_3E0, '(A)') '(3e16.9)'
+      write(fmt_2I0, '(A)') '(2I4)'
+      write(fmt_tmp, '(A)') '(A100)'
+
+      open(ecom_out1D_test, file='ecom1D.out', status='unknown')
+      write(ecom_out1D_test, fmt_2I0) npsi, npsic
+      write(ecom_out1D_test, fmt_rvec_npsi) psi(1:npsi)
+      write(ecom_out1D_test, fmt_rvec_npsic) psic(1:npsic)
+
+      write(ecom_out1D_test, fmt_3E0) R0,R0*reps,TotVol
+      write(ecom_out1D_test, fmt_rvec_npsi) Vol(1:npsi)
+      write(ecom_out1D_test, fmt_rvec_npsi) dVol(1:npsi)
+      write(ecom_out1D_test, fmt_rvec_npsi) dVoldpsi(1:npsi)
+      write(ecom_out1D_test, fmt_rvec_npsi) q(1:npsi)
+      write(ecom_out1D_test, fmt_rvec_npsi) kappa(1:npsi)
+
+      write(ecom_out1D_test, fmt_rvec_npsic) dVoldpsic(1:npsic)
+      write(ecom_out1D_test, fmt_rvec_npsic) qc(1:npsic)
+      write(ecom_out1D_test, fmt_rvec_npsic) kappac(1:npsic)
+      write(ecom_out1D_test, fmt_rvec_npsic) shatc(1:npsic)
+      write(ecom_out1D_test, fmt_rvec_npsic) dpsidrc(1:npsic)
+      write(ecom_out1D_test, fmt_rvec_npsic) tgradrho2(1:npsic)
+
+      close(ecom_out1D_test)
+
+      end subroutine writeonedtotalpi
+
+
+      subroutine writetwodtotalpi(tfpolcon,BpR,
+     1       psidott,tdott)
+
+      use arrays, only: ntpsi,nttin,Rmaxis,Zmaxis,tpsi,ttin
+      use arrays, only: B0vac,btot,bpol,gradpar,lambda,psiB
+      use arrays, only: R0,reps
+      
+      implicit none
+
+      character(len=10) fmt_rvec_nthe
+      character(len=10) fmt_rvec_npsi
+      character(len=10) fmt_rvec_npsic
+      character(len=10) fmt_1E0
+      character(len=10) fmt_4E0
+      character(len=10) fmt_1I0
+      character(len=10) fmt_2I0
+      character(len=10) fmt_tmp
+
+      real *8 BpR(ntpsi*nttin),tfpolcon(ntpsi)
+      real *8 tdott(ntpsi*nttin),psidott(ntpsi*nttin)
+      real *8 psi(ntpsi),rpsi(ntpsi),Bmag2D(ntpsi,nttin)
+      real *8 Ipol2D(ntpsi,nttin),Jacob(ntpsi,nttin)
+      real *8 gctr_psipsi(ntpsi,nttin),gctr_psithe(ntpsi,nttin)
+      real *8 gctr_thethe(ntpsi,nttin)
+      integer *4 ecom_out2D_test,ipsi,i,j
+
+
+      ecom_out2D_test = 12
+
+      psi=1.0d0-tpsi
+
+      do i=1,ntpsi
+         do j=1,nttin
+         Ipol2D(i,j)=abs(tfpolcon(i))/B0vac/Rmaxis
+         end do
+         rpsi(i)=(tpsi(i)/lambda+psiB)/B0vac/Rmaxis**2.0d0
+
+         Bmag2D(i,:)=btot((i-1)*nttin+1:i*nttin)/B0vac
+
+         Jacob(i,:)=1.0d0/btot((i-1)*nttin+1:i*nttin)/
+     1          gradpar((i-1)*nttin+1:i*nttin)/Rmaxis*B0vac
+
+         gctr_psipsi(i,:)=BpR((i-1)*nttin+1:i*nttin)**2.0d0
+     1          /B0vac**2.0d0/Rmaxis**2.0d0
+
+         gctr_psithe(i,:)=psidott((i-1)*nttin+1:i*nttin)/B0vac
+
+         gctr_thethe(i,:)=tdott((i-1)*nttin+1:i*nttin)*Rmaxis**2.0d0
+
+      end do
+
+         write(fmt_rvec_npsi,'(A,I3,A)') '(', ntpsi, 'e16.9)'
+         write(fmt_rvec_nthe,'(A,I3,A)') '(', nttin, 'e16.9)'
+         write(fmt_1E0, '(A)') '(1e16.9)'
+         write(fmt_4E0, '(A)') '(4e16.9)'
+         write(fmt_1I0, '(A)') '(1I4)'
+         write(fmt_2I0, '(A)') '(2I4)'
+         write(fmt_tmp, '(A)') '(A100)'
+         
+         open(ecom_out2D_test, file='ecom2D.out', status='unknown')
+         
+         write(ecom_out2D_test, fmt_1I0) nttin
+         write(ecom_out2D_test, fmt_4E0) B0vac, Rmaxis,-1./lambda,
+     1    -lambda*B0vac*Rmaxis**2.0d0
+         write(ecom_out2D_test, fmt_rvec_nthe) ttin(1:nttin)
+         do i=1,ntpsi
+         write(ecom_out2D_test, fmt_rvec_nthe) Bmag2D(i,1:nttin)
+         end do
+         do i=1,ntpsi
+         write(ecom_out2D_test, fmt_rvec_nthe) Ipol2D(i,1:nttin)
+         end do
+         do i=1,ntpsi
+         write(ecom_out2D_test, fmt_rvec_nthe) Jacob(i,1:nttin) 
+         end do
+         !write(ecom_out2D_test,*) 'gpp'
+         do i=1,ntpsi
+         write(ecom_out2D_test, fmt_rvec_nthe) gctr_psipsi(i,1:nttin)
+         end do
+         !write(ecom_out2D_test,*) 'gpt'
+         do i=1,ntpsi
+         write(ecom_out2D_test, fmt_rvec_nthe) gctr_psithe(i,1:nttin)
+         end do
+         !write(ecom_out2D_test,*) 'gtt'
+         do i=1,ntpsi
+         write(ecom_out2D_test, fmt_rvec_nthe) gctr_thethe(i,1:nttin)
+         end do
+         close(ecom_out2D_test)
+
+
+      end subroutine writetwodtotalpi
+
 
 C
 C

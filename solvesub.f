@@ -176,80 +176,10 @@ c
 
       end if
 c      write(*,*) 'u, ur, ut',ui, uri, uti
-c      write(*,*) 'rndi, tndi, Rt3i, Zt3i', rndi, tndi, Rt3i, Zt3i
+      write(*,*) 'rndi, tndi, Rt3i, Zt3i', rndi, tndi, Rt3i, Zt3i
 
       return
-      end
-
-      subroutine findpsim(rndm, tndm, psim)
-
-      use arrays, only: nt2, nr, rnd, kcheb, ucoeff, urcoeff, urrcoeff
-      use arrays, only: cftmsub, bnodes, zk
-      use arrays, only: isymud, nsub
-      
-      implicit real*8 (a-h,o-z)
-
-      
-
-      real *8  ucinr(nt2), urcinr(nt2), urrcinr(nt2)
-      real *8  ucini(nt2), urcini(nt2), urrcini(nt2)  
-      real *8  chcoeff(kcheb)
-      real *8  uch(kcheb), urch(kcheb), uthch(kcheb)
-      real *8  urrch(kcheb)
-      complex *16 ima, wzm, cint
-      complex *16 ucin(nt2)
-      complex *16 urcin(nt2), urrcin(nt2)
-
-      ima = (0.0d0,1.0d0)
-      pi = 4.0d0*datan(1.0d0)
-      twopi=2.0d0*pi
-
-         if (dabs(rndm).le.1.0d-8) then
-            rndm=1.0d-8
-         end if
-      
-        
-         bnodes(1)=0.0d0
-
-         do iisub=2,nsub+1
-            if (rndm.lt.bnodes(iisub)) then
-               isub=iisub-1
-               xch=(rndm-bnodes(isub))/(bnodes(isub+1)-bnodes(isub))
-               exit
-            end if
-         end do
-
-         
-         do i=1,kcheb
-            do j=1,nt2
-               inext=((isub-1)*kcheb+i)+(j-1)*nr
-               ucin(j)=ucoeff(inext)
-               urcin(j)=urcoeff(inext)
-               urrcin(j)=urrcoeff(inext)
-            end do
-            call ftsolnoffth0pi(tndm,nt2,ucin,urcin,urrcin,
-     1           uch(i),urch(i),urrch(i))
-         end do
-         call chftransq(chcoeff,uch,kcheb,cftmsub)
-         call chfit(xch, kcheb, chcoeff, um)
-
-
-
-         wzm =rndm*exp(ima*tndm)
-         call fft_cauchy(nt2,wzm,zk,cint)
-         Rt3m=cint
-         Zt3m=-ima*cint
-
-
-      
-         psim = um*dsqrt(Rt3m)
-
-         
-      return
-      end
-   
-
-
+      end    
 
       subroutine findmagaxis(inext_maxpsi, rndi, tndi, dpsidri, dpsidti 
      1     ,dpsidrri ,dpsidrti, dpsidtti, Rt3i, Zt3i, psii
@@ -266,6 +196,10 @@ c      write(*,*) 'rndi, tndi, Rt3i, Zt3i', rndi, tndi, Rt3i, Zt3i
       real *8  chcoeff(kcheb)
       real *8  uch(kcheb), urch(kcheb), uthch(kcheb)
       real *8  urtch(kcheb), uttch(kcheb), urrch(kcheb)
+      ! for frprmn of gkpsp
+      integer j,its,ITMAX,iter
+      real *8 gg,gam,fp,dgg,p(2),g(2),h(2),xi(2),EPS,ftol
+
       complex *16 ima, wzm, cint
       complex *16 ucin(nt2)
       complex *16 urcin(nt2), urrcin(nt2)
@@ -289,32 +223,29 @@ c      eps7=1.0d-18 !14
       psim=psii
 
 
-      ith=inext_maxpsi/nr+1
-      ir=inext_maxpsi-(ith-1)*nr
-      a = rnd(ir-1)
-      b = rndm
-      c = rnd(ir+1)
 
-      hnt=nt2/2
-      if (abs(ith-hnd).lt.10) then
-         d = a
-         a = -c
-         b = -b
-         c = -d
-      end if
+      if (isymud.eq.1) then  ! for up-down symmetric, tndm=0.0d0 or tndm=pi
 
+         ith=inext_maxpsi/nr+1
+         ir=inext_maxpsi-(ith-1)*nr
+         a = rnd(ir-1)
+         b = rndm
+         c = rnd(ir+1)
+         hnt=nt2/2
+         if (abs(ith-hnd).lt.10) then
+            d = a
+            a = -c
+            b = -b
+            c = -d
+         end if
+         e = 0
 
-      e = 0
-
-      iimag=0
-      maxiimag=10
-      do while ((iimag.eq.0).or.
+         iimag=0
+         maxiimag=10
+         do while ((iimag.eq.0).or.
      1     (dabs(dpsi2).gt.epsmag).and.(iimag.lt.maxiimag))
-
-         iimag=iimag+1
-
-         if (isymud.eq.1) then  ! for up-down symmetric, tndm=0.0d0 or tndm=pi
-                   
+            iimag=iimag+1
+                 
             call findpsim(abs(a), tndm, psia) !rnd to psi
             call findpsim(abs(b), tndm, psib)
             call findpsim(abs(c), tndm, psic)
@@ -326,7 +257,6 @@ c      eps7=1.0d-18 !14
             d=b-0.5d0*(pbc*ba**2.0d0-pba*bc**2.0d0)/(ba*pbc-bc*pba)
 
             if (((ba*pbc-bc*pba).ne.0).and.(e.eq.0)) then !2nd interpolating
-
                drm = abs(d) - rndm
                rndm = abs(d)
                if (d.ge.c) then
@@ -394,38 +324,14 @@ c      eps7=1.0d-18 !14
                rndm = abs(a)
             end if
 
-c            tndm=0.0d0
+c           tndm=0.0d0
             if (dabs(rndm).le.1.0d-8) then
                rndm=1.0d-8
                write(*,*) 'rndm',rndm
                exit !return
             end if
-         else                   ! for up-down asymmetric
-            
-            if (rndm.gt.rnd(2)) then !if the magnetic axis is not so close to the unitdisk center 
-               drdtjac=dpsidrrm*dpsidttm-dpsidrtm**2
-               drm=(-dpsidttm*dpsidrm+dpsidrtm*dpsidtm)/drdtjac
-               dtm=(dpsidrtm*dpsidrm-dpsidrrm*dpsidtm)/drdtjac
-               
-               rndm=rndm+drm
-               tndm=tndm+dtm
-            else if (rndm.le.1.0d-8) then
-               write(*,*) 'rndm',rndm
-               exit !return
-            else
-               drm=-dpsidrm/dpsidrrm 
-               rndm=rndm+drm
 
-               if (rndm.le.0.0d0) then
-                  rndm=1.0d-8
-                  write(*,*) 'rndm',rndm
-                  exit !rndm=1.0d-8
-               end if
-            end if
-         end if
-         
-         write (*,*) 'findmagaxis', iimag, rndm, tndm, drm, dtm
-
+            write (*,*) 'findmagaxis', iimag, rndm, tndm, drm, dtm
    
 c         do i=1, nr-1
 c            if (rndm.le.rnd(1)) then
@@ -445,20 +351,18 @@ c               exit
 c            end if
 c         end do
 
-         bnodes(1)=0.0d0
+            bnodes(1)=0.0d0
 
-         do iisub=2,nsub+1
-            if (rndm.lt.bnodes(iisub)) then
-               isub=iisub-1
-               xch=(rndm-bnodes(isub))/(bnodes(isub+1)-bnodes(isub))
-               exit
-            end if
-         end do
-         write(*,*) 'bnodes',bnodes
-         write(*,*) 'isub',isub,xch,bnodes(isub),bnodes(isub+1)
+            do iisub=2,nsub+1
+               if (rndm.lt.bnodes(iisub)) then
+                  isub=iisub-1
+                  xch=(rndm-bnodes(isub))/(bnodes(isub+1)-bnodes(isub))
+                  exit
+               end if
+            end do
+            write(*,*) 'bnodes',bnodes
+            write(*,*) 'isub',isub,xch,bnodes(isub),bnodes(isub+1)
 
-         if (isymud.eq.1) then  ! for up-down symmetric, tndm=0.0d0 or tndm=pi
-    
             do i=1,kcheb
                do j=1,nt2
                   inext=((isub-1)*kcheb+i)+(j-1)*nr
@@ -500,86 +404,167 @@ c         end do
             dpsidrrm = urrm*dsqrt(Rt3m)
      1           +urm*dRdrm/dsqrt(Rt3m)
      1           +um*dRdrrm/(2.0d0*sqrt(Rt3m))
-            
-         else  ! for up-down asymmetric
+       
+         write (*,*) 'findmagaxis2',psim, dpsidrm, dpsidtm
+         dpsi2= dpsidrm**2+dpsidtm**2 !/rndm**2
+         end do
+         
+      else                   ! for up-down asymmetric
+         
+         EPS = 1.0e-10
+         ITMAX=100
+         ftol=1.0e-30
+   
+         p(1)=rndm
+         p(2)=tndm
+         call findpsiRZoffth(p(1),p(2),fp,xi(1),xi(2))
+         write(*,*) 'hello first', p(1), p(2), fp, xi(1), xi(2)
+         do j=1,2
+            g(j)=-xi(j)
+            h(j)=g(j)
+            xi(j)=g(j)
+         enddo
 
-            do i=1,kcheb
-               do j=1,nt2
-                  inext=((isub-1)*kcheb+i)+(j-1)*nr
-                  ucin(j)=ucoeff(inext)
-                  urcin(j)=urcoeff(inext)
-                  urrcin(j)=urrcoeff(inext)
-               end do
-               call ftsolnoffth(tndm,nt2,ucin,urcin,urrcin,
-     1              uch(i),urch(i),urtch(i),uthch(i),uttch(i),urrch(i))
-               
+         do its=1,ITMAX
+            iter=its
+            call linmin(p,xi,fret)
+            write(*,*) 'linmin',its,p(1), p(2),xi(1),xi(2),fret
+
+         
+            if (2.0*dabs(fret-fp).le.ftol*(dabs(fret)+dabs(fp)+EPS)) 
+     1       exit
+
+            call findpsiRZoffth(p(1),p(2),fp,xi(1),xi(2))
+            dgg=0.0
+            gg=0.0
+            do j=1,2
+               gg = gg + g(j)*g(j)
+               dgg = dgg + xi(j)*(xi(j)+g(j))
+            enddo
+            if (gg.eq.0.0) exit
+            gam=dgg/gg
+            do j=1,2
+               g(j)=-xi(j)
+               h(j)=g(j)+gam*h(j)
+               xi(j)=h(j)
+            enddo
+
+         enddo
+         rndm=p(1)
+         tndm=p(2)
+         
+
+         ! if (rndm.gt.rnd(2)) then !if the magnetic axis is not so close to the unitdisk center 
+         !    drdtjac=dpsidrrm*dpsidttm-dpsidrtm**2
+         !    drm=(-dpsidttm*dpsidrm+dpsidrtm*dpsidtm)/drdtjac
+         !    dtm=(dpsidrtm*dpsidrm-dpsidrrm*dpsidtm)/drdtjac
+            
+         !    rndm=rndm+drm
+         !    tndm=tndm+dtm
+         ! else if (rndm.le.1.0d-8) then
+         !    write(*,*) 'rndm',rndm
+         !    exit !return
+         ! else
+         !    drm=-dpsidrm/dpsidrrm 
+         !    rndm=rndm+drm
+
+         !    if (rndm.le.0.0d0) then
+         !       rndm=1.0d-8
+         !       write(*,*) 'rndm',rndm
+         !       exit !rndm=1.0d-8
+         !    end if
+         ! end if
+
+
+         bnodes(1)=0.0d0
+
+         do iisub=2,nsub+1
+            if (rndm.lt.bnodes(iisub)) then
+               isub=iisub-1
+               xch=(rndm-bnodes(isub))/(bnodes(isub+1)-bnodes(isub))
+               exit
+            end if
+         end do
+         ! write(*,*) 'bnodes',bnodes
+         ! write(*,*) 'isub',isub,xch,bnodes(isub),bnodes(isub+1)
+
+
+         do i=1,kcheb
+            do j=1,nt2
+               inext=((isub-1)*kcheb+i)+(j-1)*nr
+               ucin(j)=ucoeff(inext)
+               urcin(j)=urcoeff(inext)
+               urrcin(j)=urrcoeff(inext)
             end do
-            call chftransq(chcoeff,uch,kcheb,cftmsub)
-            call chfit(xch, kcheb, chcoeff, um)
-            call chftransq(chcoeff,urch,kcheb,cftmsub)
-            call chfit(xch, kcheb, chcoeff, urm)
-            call chftransq(chcoeff,urtch,kcheb,cftmsub)
-            call chfit(xch, kcheb, chcoeff, urtm)
-            call chftransq(chcoeff,uthch,kcheb,cftmsub)
-            call chfit(xch, kcheb, chcoeff, uthm)
-            call chftransq(chcoeff,uttch,kcheb,cftmsub)
-            call chfit(xch, kcheb, chcoeff, uttm)
-            call chftransq(chcoeff,urrch,kcheb,cftmsub)
-            call chfit(xch, kcheb, chcoeff, urrm)
+            call ftsolnoffth(tndm,nt2,ucin,urcin,urrcin,
+     1              uch(i),urch(i),urtch(i),uthch(i),uttch(i),urrch(i))
             
-            
-          write(*,*) 'ucin',ucin(1:nt2)
-           write(*,*) 'urcin',urcin(1:nt2)
-           write(*,*) 'urrcin',urrcin(1:nt2)
-           write(*,*) 'xch',xch,um,urm,urtm,uthm,urrm
-             write(*,*) 'rndm,tndm',rndm,tndm 
-            wzm =rndm*exp(ima*tndm)
-            call fft_cauchy(nt2,wzm,zk,cint)
-            Rt3m=cint
-            Zt3m=-ima*cint
-            call fft_cauchy(nt2,wzm,dzdw2k,cint)
-            dzdwr=cint
-            dzdwi=-ima*cint
-            call fft_cauchy(nt2,wzm,dzdww2k,cint)
-            dzdwwr=cint
-            dzdwwi=-ima*cint
-            
-            write(*,*) 'Rt3m',Rt3m,zt3m,dzdwr,dzdwi
+         end do
+         call chftransq(chcoeff,uch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, um)
+         call chftransq(chcoeff,urch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, urm)
+         call chftransq(chcoeff,urtch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, urtm)
+         call chftransq(chcoeff,uthch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, uthm)
+         call chftransq(chcoeff,uttch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, uttm)
+         call chftransq(chcoeff,urrch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, urrm)
+         
+         
+         ! write(*,*) 'ucin',ucin(1:nt2)
+         ! write(*,*) 'urcin',urcin(1:nt2)
+         ! write(*,*) 'urrcin',urrcin(1:nt2)
+         ! write(*,*) 'xch',xch,um,urm,urtm,uthm,urrm
+         ! write(*,*) 'rndm,tndm',rndm,tndm 
+         wzm =rndm*exp(ima*tndm)
+         call fft_cauchy(nt2,wzm,zk,cint)
+         Rt3m=cint
+         Zt3m=-ima*cint
+         call fft_cauchy(nt2,wzm,dzdw2k,cint)
+         dzdwr=cint
+         dzdwi=-ima*cint
+         call fft_cauchy(nt2,wzm,dzdww2k,cint)
+         dzdwwr=cint
+         dzdwwi=-ima*cint
+         
+         ! write(*,*) 'Rt3m',Rt3m,zt3m,dzdwr,dzdwi
 
-            dRdrm=dzdwr*dcos(tndm)-dzdwi*dsin(tndm)
-            dRdrrm=dzdwwr*dcos(2.0d0*tndm)
+         dRdrm=dzdwr*dcos(tndm)-dzdwi*dsin(tndm)
+         dRdrrm=dzdwwr*dcos(2.0d0*tndm)
      1           -dzdwwi*dsin(2.0d0*tndm)
-            dRdtm=dzdwr*rndm*dsin(tndm)+dzdwi*rndm*dcos(tndm)
-            dRdrtm=dzdwwr*rndm*dsin(2.0d0*tndm)
+         dRdtm=dzdwr*rndm*dsin(tndm)+dzdwi*rndm*dcos(tndm)
+         dRdrtm=dzdwwr*rndm*dsin(2.0d0*tndm)
      1           +dzdwwi*rndm*dcos(2.0d0*tndm)
      2           +dzdwr*(-dsin(tndm))+dzdwi*dcos(tndm)
-            dRdttm=dzdwwr*rndm**2*(-dcos(2.0d0*tndm))
+         dRdttm=dzdwwr*rndm**2*(-dcos(2.0d0*tndm))
      1           +dzdwwi*rndm**2*dsin(2.0d0*tndm)
      2           +dzdwr*rndm*dcos(tndm)-dzdwi*rndm*dsin(tndm)
-            write(*,*) 'dRdrm',drdrm,drdrrm,drdtm,drdrtm
-            psim = um*dsqrt(Rt3m)
-            
-            dpsidrm = urm*dsqrt(Rt3m)
+         ! write(*,*) 'dRdrm',drdrm,drdrrm,drdtm,drdrtm
+         psim = um*dsqrt(Rt3m)
+         
+         dpsidrm = urm*dsqrt(Rt3m)
      1           +um/(2.0d0*dsqrt(Rt3m))*dRdrm
-            dpsidtm = uthm*dsqrt(Rt3m)
+         dpsidtm = uthm*dsqrt(Rt3m)
      1           +um/(2.0d0*dsqrt(Rt3m))*dRdtm
-            
-            dpsidrrm = urrm*dsqrt(Rt3m)
+         
+         dpsidrrm = urrm*dsqrt(Rt3m)
      1           +urm*dRdrm/dsqrt(Rt3m)
      1           +um*dRdrrm/(2.0d0*sqrt(Rt3m))
-            dpsidrtm=  urtm*sqrt(Rt3m)
+         dpsidrtm=  urtm*sqrt(Rt3m)
      1           +uthm*(dRdrm+dRdtm)/(2.0d0*sqrt(Rt3m))
      1           +um*dRdrtm/(2.0d0*sqrt(Rt3m))
-            dpsidttm = uttm*sqrt(Rt3m)
+         dpsidttm = uttm*sqrt(Rt3m)
      1           +uthm*dRdtm/sqrt(Rt3m)
      1           +um*dRdttm/(2.0d0*sqrt(Rt3m))
 
-            write(*,*) 'dpsdrm',dpsitdrm,dpsidtm,dpsidrrm
-            dpsi2= dpsidrm**2+dpsidtm**2 !/rndm**2
-         end if
-      write (*,*) 'findmagaxis2',psim, dpsidrm, dpsidtm
+         ! write(*,*) 'dpsdrm',dpsitdrm,dpsidtm,dpsidrrm
+         dpsi2= dpsidrm**2+dpsidtm**2 !/rndm**2
+         write (*,*) 'findmagaxis2',psim, dpsidrm, dpsidtm
 
-      end do
+      endif
 
       rndi=rndm
       tndi=tndm
@@ -595,3 +580,434 @@ c         end do
 
       return
       end
+
+
+
+      subroutine findpsim(rndm, tndm, psim)
+
+      use arrays, only: nt2, nr, rnd, kcheb, ucoeff, urcoeff, urrcoeff
+      use arrays, only: cftmsub, bnodes, zk
+      use arrays, only: isymud, nsub
+      
+      implicit real*8 (a-h,o-z)
+
+      real *8  ucinr(nt2), urcinr(nt2), urrcinr(nt2)
+      real *8  ucini(nt2), urcini(nt2), urrcini(nt2)  
+      real *8  chcoeff(kcheb)
+      real *8  uch(kcheb), urch(kcheb), uthch(kcheb)
+      real *8  urtch(kcheb), uttch(kcheb), urrch(kcheb)
+      complex *16 ima, wzm, cint
+      complex *16 ucin(nt2)
+      complex *16 urcin(nt2), urrcin(nt2)
+
+      ima = (0.0d0,1.0d0)
+      pi = 4.0d0*datan(1.0d0)
+      twopi=2.0d0*pi
+
+         if (dabs(rndm).le.1.0d-8) then
+            rndm=1.0d-8
+         end if
+         bnodes(1)=0.0d0
+
+         do iisub=2,nsub+1
+            if (rndm.lt.bnodes(iisub)) then
+               isub=iisub-1
+               xch=(rndm-bnodes(isub))/(bnodes(isub+1)-bnodes(isub))
+               exit
+            end if
+         end do
+         
+         do i=1,kcheb
+            do j=1,nt2
+               inext=((isub-1)*kcheb+i)+(j-1)*nr
+               ucin(j)=ucoeff(inext)
+               urcin(j)=urcoeff(inext)
+               urrcin(j)=urrcoeff(inext)
+            end do
+            call ftsolnoffth0pi(tndm,nt2,ucin,urcin,urrcin,
+     1           uch(i),urch(i),urrch(i))
+         end do
+         call chftransq(chcoeff,uch,kcheb,cftmsub)
+         call chfit(xch, kcheb, chcoeff, um)
+         !write(*,*)'ucin',ucin
+
+         wzm =rndm*exp(ima*tndm)
+         call fft_cauchy(nt2,wzm,zk,cint)
+         Rt3m=cint
+         Zt3m=-ima*cint      
+         psim = um*dsqrt(Rt3m)
+ 
+      return
+      end
+
+
+
+      subroutine findpsiRZoffth(rndm,tndm,psim,dpsidrm,dpsidtm)
+
+      use arrays, only: nt2, nr, rnd, kcheb, ucoeff, urcoeff, urrcoeff
+      use arrays, only: cftmsub, bnodes, zk, dzdw2k
+      use arrays, only: isymud, nsub
+      
+      implicit real*8 (a-h,o-z)
+      real *8  ucinr(nt2), urcinr(nt2), urrcinr(nt2)
+      real *8  ucini(nt2), urcini(nt2), urrcini(nt2)  
+      real *8  chcoeff(kcheb)
+      real *8  uch(kcheb), urch(kcheb), uthch(kcheb)
+      real *8  urtch(kcheb), uttch(kcheb), urrch(kcheb)
+      complex *16 ima, wzm, cint
+      complex *16 ucin(nt2)
+      complex *16 urcin(nt2), urrcin(nt2)
+
+      ima = (0.0d0,1.0d0)
+      pi = 4.0d0*datan(1.0d0)
+      twopi=2.0d0*pi
+      
+      if (rndm.lt.0.0) then
+         tndm=tndm+pi
+         rndm=dabs(rndm)
+      endif
+
+      if (rndm.lt.1.0d-8) then
+         rndm=1.0d-8
+      end if
+
+      ! if ((tndm.ge.twopi).or.(tndm.lt.0)) then
+      !    tndm=mod(tndm,2*pi)
+      ! endif
+      
+
+      bnodes(1)=0.0d0
+      do iisub=2,nsub+1
+         if (rndm.lt.bnodes(iisub)) then
+            isub=iisub-1
+            xch=(rndm-bnodes(isub))/(bnodes(isub+1)-bnodes(isub))
+            exit
+         end if
+      end do
+
+      do i=1,kcheb
+         do j=1,nt2
+            inext=((isub-1)*kcheb+i)+(j-1)*nr
+            ucin(j)=ucoeff(inext)
+            urcin(j)=urcoeff(inext)
+            urrcin(j)=urrcoeff(inext)
+         end do
+         call ftsolnoffth(tndm,nt2,ucin,urcin,urrcin,
+     1        uch(i),urch(i),urtch(i),uthch(i),uttch(i),urrch(i))
+               
+      end do
+
+      call chftransq(chcoeff,uch,kcheb,cftmsub)
+      call chfit(xch, kcheb, chcoeff, um)
+      call chftransq(chcoeff,urch,kcheb,cftmsub)
+      call chfit(xch, kcheb, chcoeff, urm)
+      call chftransq(chcoeff,uthch,kcheb,cftmsub)
+      call chfit(xch, kcheb, chcoeff, uthm)
+
+      ! write(*,*) 'ucin',ucin(1:nt2)
+      ! write(*,*) 'urcin',urcin(1:nt2)
+      ! write(*,*) 'urrcin',urrcin(1:nt2)
+      ! write(*,*) 'xch',xch,um,urm,urtm,uthm,urrm
+      ! write(*,*) 'rndm,tndm',rndm,tndm
+
+      wzm =rndm*exp(ima*tndm)
+      ! write(*,*) 'wzm1', wzm
+      call fft_cauchy(nt2,wzm,zk,cint)
+      Rt3m=cint
+      Zt3m=-ima*cint
+      ! write(*,*) 'wzm2', wzm
+      call fft_cauchy(nt2,wzm,dzdw2k,cint)
+      dzdwr=cint
+      dzdwi=-ima*cint
+      
+      ! write(*,*) 'Rt3m',Rt3m,zt3m,dzdwr,dzdwi
+
+
+      dRdrm=dzdwr*dcos(tndm)-dzdwi*dsin(tndm)
+      dRdtm=dzdwr*rndm*dsin(tndm)+dzdwi*rndm*dcos(tndm)
+
+      ! write(*,*) 'dRdrm',drdrm,drdtm
+
+      psim = um*dsqrt(Rt3m)
+      dpsidrm = urm*dsqrt(Rt3m)
+     1        +um/(2.0d0*dsqrt(Rt3m))*dRdrm
+      dpsidtm = uthm*dsqrt(Rt3m)
+     1        +um/(2.0d0*dsqrt(Rt3m))*dRdtm
+         
+      psim=-psim
+      dpsidrm=-dpsidrm
+      dpsidtm=-dpsidtm
+      return
+      end
+
+
+      subroutine f1dim(r,t,dpdr,dpdt,x,fx)
+      implicit real*8 (a-h,o-z)
+
+      rx=r+x*dpdr
+      tx=t+x*dpdt
+      call findpsiRZoffth(rx,tx,fx,dum,dum)
+      return
+      end
+
+      subroutine frprmn(rndm,tndm,iter,fret,p)
+      implicit real*8 (a-h,o-z)
+      
+      integer j,its,ITMAX,iter
+      real *8 gg,gam,fp,dgg,p(2),g(2),h(2),xi(2),EPS,ftol
+      
+      EPS = 1.0e-10
+      ITMAX=200
+      ftol=1.0e-30
+
+      p(1)=rndm
+      p(2)=tndm
+      call findpsiRZoffth(p(1),p(2),fp,xi(1),xi(2))
+      
+      do j=1,2
+         g(j)=-xi(j)
+         h(j)=g(j)
+         xi(j)=g(j)
+      enddo
+
+      do its=1,ITMAX
+         iter=its
+         call linmin(p,xi,fret)
+         write(*,*)'linmin',its
+         if (2.0*dabs(fret-fp).le.ftol*(dabs(fret)+dabs(fp)+EPS)) return
+
+         call findpsiRZoffth(p(1),p(2),fp,xi(1),xi(2))
+         dgg=0.0
+         gg=0.0
+         do j=1,2
+            gg = gg + g(j)*g(j)
+            dgg = dgg + xi(j)*(xi(j)+g(j))
+         enddo
+         if (gg.eq.0.0) return
+         gam=dgg/gg
+         do j=1,2
+            g(j)=-xi(j)
+            h(j)=g(j)+gam*h(j)
+            xi(j)=h(j)
+         enddo
+         write(*,*)'frprmn'
+      enddo
+      write(*,*)'frprmn end'
+      return
+      end
+
+      subroutine linmin(p,xi,fret)
+      implicit real*8 (a-h,o-z)
+      integer *4 j
+      real *8 xx,xmin,fx,fb,fa,bx,ax,pcom(2),xicom(2),tol
+      real *8 p(2),xi(2),rx,tx,dpdr,dpdt
+
+      tol=2.0e-4
+
+      ncom=2
+      nrfunc=func
+      do j=1,2
+         pcom(j)=p(j)
+         xicom(j)=xi(j)
+      enddo
+      ax=0.0
+      xx=1.0
+      call mnbrak(ax,xx,bx,fa,fx,fb,p(1),p(2),xi(1),xi(2))
+      call brent(ax,xx,bx,tol,xmin,fret,p(1),p(2),xi(1),xi(2))
+      
+      do j=1,2
+         xi(j)=xi(j)*xmin
+         p(j)=p(j)+xi(j)
+      enddo
+
+      return
+      end
+
+
+      subroutine brent(ax,bx,cx,tol,xmin,fx,rx,tx,dpdr,dpdt)
+      implicit real*8 (a-h,o-z)
+         
+      integer iter, ITMAX
+      real *8 a,b,d,etemp,fu,fv,fw,fx,p,q,r
+      real *8 tol1,tol2,u,v,w,x,xm
+      real *8 CGOLD, ZEPS
+
+      ITMAX = 100
+      CGOLD = 0.3819660
+      ZEPS = 1.0e-10
+
+      if (ax.lt.cx) then 
+         a=ax
+         b=cx
+      else 
+         a=cx
+         b=ax
+      end if
+      x=bx
+      w=bx
+      v=bx
+      call f1dim(rx,tx,dpdr,dpdt,bx,fx)
+      fw=fx
+      fv=fx
+
+      do iter=1, ITMAX
+         xm=0.5*(a+b)
+         tol2=2.0*(tol*dabs(x)+ZEPS)
+         if (dabs(x-xm).le.(tol2-0.5*(b-a))) then
+            xmin=x
+            return
+         end if
+
+         if (dabs(e).gt.tol1) then
+            r=(x-w)*(fx-fv)
+            q=(x-v)*(fx-fw)
+            p=(x-v)*q-(x-w)*r
+            q=2.0*(q-r)
+            if (q.gt.0.0) p = -p
+            q=dabs(q)
+            etemp=e
+            e=d
+            if ((dabs(p).ge.dabs(0.5*q*etemp)).or.(p.le.q*(a-x))
+     1          .or.(p.ge.q*(b-x))) then
+               if(x.ge.xm) then
+                  e=a-x
+               else
+                  e=b-x
+               end if
+               d=CGOLD*e
+            else
+               d=p/q
+               u=x+d
+               if (((u-a).lt.tol2).or.((b-u).lt.tol2)) d=sign(tol1,xm-x)
+            end if
+         else
+            if(x.ge.xm) then
+               e=a-x
+            else
+               e=b-x
+            end if
+            d=CGOLD*e
+         end if
+         
+         if (dabs(d).ge.tol1) then
+            u=x+d
+         else
+            u=x+sign(tol1,d)
+         end if
+         call f1dim(rx,tx,dpdr,dpdt,u,fu)
+
+         if (fu.le.fx) then
+            if (u.ge.x) then
+               a=x
+            else 
+               b=x 
+            end if
+            v=w
+            w=x
+            x=u
+            fv=fw
+            fw=fx
+            fx=fu
+
+         else
+            if(u.lt.x) then
+               a=u
+            else
+               b=u
+            endif
+            if((fu.le.fw).or.(w.eq.x)) then
+               v=w
+               w=u
+               fv=fw
+               fw=fu
+            elseif((fu.le.fv).or.(v.eq.x).or.(v.eq.w)) then
+               v=u
+               fv=fu
+            endif
+         endif
+      enddo
+
+      !write(*,*) "Too many iterations in brent"
+      xmin=x
+      return
+      end
+
+!********************************************************
+!*    Bracketing a minimum of a real function Y=F(X)    *
+!*             using MNBRAK subroutine                  *
+!* ---------------------------------------------------- *
+!* REFERENCE: "Numerical Recipes, The Art of Scientific *
+!*             Computing By W.H. Press, B.P. Flannery,  *
+!*             S.A. Teukolsky and W.T. Vetterling,      *
+!*             Cambridge University Press, 1986"        *
+!*             [BIBLI 08].                              *
+!********************************************************
+      SUBROUTINE MNBRAK(AX,BX,CX,FA,FB,FC,RX,TX,DPDR,DPDT)
+      !Given a function FUNC(X), and given distinct initial points AX and
+      !BX, this routine searches in the downhill direction (defined by the
+      !function as evaluated at the initial points) and returns new points
+      !AX, BX, CX which bracket a minimum of the function. Also returned
+      !are the function values at the three points, FA, FB and FC.
+      implicit real*8 (a-h,o-z)
+      PARAMETER(GOLD=1.618034,GLIMIT=100.0,TINY=1.0d-20)
+      !The first parameter is the default ratio by which successive intervals
+      !are magnified; the second is the maximum magnification allowed for
+      !a parabolic-fit step.
+      call f1dim(RX,TX,DPDR,DPDT,AX,FA)
+      call f1dim(RX,TX,DPDR,DPDT,BX,FB)
+      IF(FB.GT.FA) THEN
+         DUM=AX
+         AX=BX
+         BX=DUM
+         DUM=FB
+         FB=FA
+         FA=DUM
+      ENDIF
+      CX=BX+GOLD*(BX-AX)
+      call f1dim(RX,TX,DPDR,DPDT,CX,FC)
+      do while(FB.gt.FC)
+         R=(BX-AX)*(FB-FC)
+         Q=(BX-CX)*(FB-FA)
+         U=BX-((BX-CX)*Q-(BX-AX)*R)/(2.0*SIGN(MAX(dabs(Q-R),TINY),Q-R))
+         ULIM=BX+GLIMIT*(CX-BX)
+         IF((BX-U)*(U-CX).GT.0) THEN
+            call f1dim(RX,TX,DPDR,DPDT,U,FU)
+            IF(FU.LT.FC) THEN
+               AX=BX
+               FA=FB
+               BX=U
+               FB=FU
+               return
+            ELSE IF(FU.GT.FB) THEN
+               CX=U
+               FC=FU
+               return
+            ENDIF
+            U=CX+GOLD*(CX-BX)
+            call f1dim(RX,TX,DPDR,DPDT,U,FU)
+         ELSE IF((CX-U)*(U-ULIM).GT.0) THEN
+            call f1dim(RX,TX,DPDR,DPDT,U,FU) ! fa or fu?
+            IF(FU.LT.FC) THEN
+              BX=CX
+              CX=U
+              U=CX+GOLD*(CX-BX)
+              FB=FC
+              FC=FU
+              call f1dim(RX,TX,DPDR,DPDT,U,FU) ! fa or fu?
+            ENDIF
+         ELSE IF((U-ULIM)*(ULIM-CX).GE.0) THEN
+            U=ULIM
+            call f1dim(RX,TX,DPDR,DPDT,U,FU) ! fa or fu?
+         ELSE
+            U=CX+GOLD*(CX-BX)
+            call f1dim(RX,TX,DPDR,DPDT,U,FU) ! fa or fu?
+         ENDIF
+         AX=BX
+         BX=CX
+         CX=U
+         FA=FB
+         FB=FC 
+         FC=FU
+      ENDdo
+      RETURN
+      END

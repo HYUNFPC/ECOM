@@ -35,7 +35,7 @@ module arrays
   public :: nflx, psiflx, maxiterF, dpsistartmag, dpsistartnchq
   public :: torcur, betaP,  curden, dlnqdpsi, dlnIcdpsi, shat, curpar 
   public :: ici, icr, ic_max, iptype, iftype, iscale, iconvq, iconvj, ifpol, maxdpsiq, maxdpsij
-  public :: ftime, fiter, fout,fiter1, fiter2, fiter3,fiter4,fiter5,fiter6,fiter7,fiter22
+  public :: ftime, fiter, fout,fiter1, fiter2, fiter3,fiter4,fiter5,fiter6,fiter7,fiter22,fiter8
   public :: iprintsol, iprintsoldisk, iprintcon, iprintQS, ifitMil, iprintmap
   public :: istability,ibscur, ijBSmodel, isolver, Halpha, ifindmagaxis, iptable,iguessRmap0
   public :: chcoeffp, presch, chcoefftf, ptfprimch, ptflowch, rhoch, chcoeffpp, chcoeffff
@@ -48,22 +48,26 @@ module arrays
   public :: rndm, tndm, dpsidrm, dpsidtm, dpsidrrm ,dpsidrtm, dpsidttm, Rt3m, Zt3m, psim
 
   public :: dense0, denseb, rn1de, rn2de, te0, teb, rn1te, rn2te, ti0, tib, rn1ti, rn2ti
-  public :: itrinity, iogyropsi, ntpsi, tpsi, trho, nttin, ttin, dpsidrho
+  public :: itrinity, iogyropsi,itotalpi, ntpsi, tpsi, trho, nttin, ttin, dpsidrho
   public :: gradpar,Rtrin,Ztrin,btot,bpol,gbdrift,gbdrift0, cvdrift,cvdrift0
   public :: shatlocal1,shatlocal2,shatlocal3
   public :: zw,gcoeff, pt, gt, fr, fi, un, unr
   public :: dfdzbf,dfdzzbf,fbf,zbf,zmbf, dwdz1m, dwdzz1m, w7, w8, w9 
+  public :: jac2D,ihamada,thh,nhamada,nhpsi,htin !junhyuk
+  public :: thh_1d,tpsi1,tpsi2 !wonjun
+  public :: iboozer,nflux,thf,ftin,thunif ! jiheon
 
   character (20) :: file_prof, file_qprof,file_jprof,file_bc, file_efit, file_tflow
-  integer :: nin, nt1, ksamp,ksamp2, kLag, nt2, nsub, kcheb, maxiter 
+  integer :: nin, nt1, ksamp,ksamp2, kLag, nt2, nsub, kcheb, maxiter
   integer :: nr, ntot, npsi, iremap, iremapon, iiter, nchq, iiterl, isymud, nchq0
   integer :: iiterq, ici, icr, ic_max, iptype, iftype, ibtype,itftype, nflx
   integer :: ftime, fiter, fout, iscale, iecom, iqtype, nqpsi, njpsi, isplch
   integer :: iconvq,iconvj, ijtype, maxiterF, iLag, ifindmagaxis, ifpol, irho
-  integer :: istability,ibscur, nchy, ijBSmodel, isolver, iprintEFIT, itrinity,iogyropsi
-  integer :: fiter1, fiter2, fiter3,fiter4,fiter5,fiter6,fiter7,fiter22
+  integer :: istability,ibscur, nchy, ijBSmodel, isolver, iprintEFIT, itrinity,iogyropsi,itotalpi
+  integer :: fiter1, fiter2, fiter3,fiter4,fiter5,fiter6,fiter7,fiter22,fiter8
   integer :: iprintsol,iprintsoldisk, iprintcon, iprintQS, ifitMil, iprintmap
   integer :: relaxiter, nrEF, nzEF, ntpsi, nttin, iptable, iqconstraint,iguessRmap0
+  integer :: ihamada, nhamada, nhpsi, iboozer,nflux
 
   real * 8 :: R0, Z0, Rmaxis, Zmaxis, Rmid, Rmax, Rmin
   real * 8 :: eps, epsLag, epsLag2, epstri, epsiter, fpolsig, ptfmax, ptfloc, ptfw, pgmax, pgloc, pgw
@@ -76,6 +80,7 @@ module arrays
   real * 8 :: rndm, tndm, dpsidrm, dpsidtm, dpsidrrm ,dpsidrtm, dpsidttm, Rt3m, Zt3m, psim
   real * 8 :: epslogzk, epslogzwk, epslogzwwk
   real * 8 ::  dense0, denseb, rn1de, rn2de, te0, teb, rn1te, rn2te, ti0, tib, rn1ti, rn2ti
+  real * 8 :: tpsi1, tpsi2
   
   real * 8, dimension(1000) :: psiflx, Vloop
 
@@ -102,6 +107,8 @@ module arrays
   real * 8, dimension(:), allocatable :: tpsi, trho, dpsidrho,ttin, gradpar,Rtrin,Ztrin,btot,bpol !for trinity
   real * 8, dimension(:), allocatable :: gbdrift,gbdrift0,cvdrift,cvdrift0,shatlocal1,shatlocal2,shatlocal3 !for trinity
   real * 8, dimension(:), allocatable :: bpres,cpres,dpres, bfpol,cfpol,dfpol
+  real * 8, dimension(:), allocatable :: hpsi, htin,thh_1d,ftin  !junhyuk and wonjun and also jiheon
+  real * 8, dimension(:,:), allocatable :: jac2D, thh ,thf,thunif ! jiheon add thf
   complex * 16, dimension(:), allocatable :: w1, dwdz1,dwdzz1, dwdz2, dwdzz2, dzdw3, dzdww3, dwdz3, dwdzz3
   complex * 16, dimension(:), allocatable :: wsaved, w7saved, zk, dzdw2k, dzdww2k
   complex * 16, dimension(:), allocatable :: ucoeff, urcoeff, urrcoeff
@@ -128,7 +135,7 @@ contains
     iremapon = 1
     iiter = 0
     file_bc='ITER.dat' 
-    file_efit='g133221.01000'
+    file_efit='g133221.01000' !'g021695.004450' for file_Kang.
     file_prof='profile.dat'
     file_tflow='torflow.dat'
     file_qprof='qprofile.dat'
@@ -246,10 +253,20 @@ contains
     itftype=0
 
     itrinity =0   !Evaluation of local metrics for trinity inputs
+    itotalpi =0
     iogyropsi=1
 
     ntpsi = 8     !number of flux surface for trinity
     nttin = 12    !number of theta grid in a flux suface of trinity
+    tpsi1 = 0.5
+    tpsi2 = 0.95
+
+    nhpsi=nchq
+    ihamada=0
+    nhamada=12
+
+    iboozer=0
+    nflux=12   ! num-psi : ntpsi...
 
     istability=0  !Anaysis for stability
     iLag = 0      !Evaluation of Lagrange (Grad-Hirshman variational form)
@@ -290,14 +307,23 @@ contains
     ntot = nr*nt2
 
 
+    if (iptype.eq.3) dpsistartmag=0.05d0
+
     call allocarray2
     call allocarray3
     call allocarray4
 
 !    if ((ibscur.eq.1) .or. (ijtype.ge.4)) then
-       call allocarrayBScur
+    call allocarrayBScur
 !    end if
-       if (itrinity.eq.1)  call allocarrayTRINITY
+    if ((ihamada.ne.0).or.(iboozer.ne.0).or.(itotalpi.ne.0)) then
+      itrinity=1
+    end if
+    if (itrinity.eq.1) call allocarrayTRINITY
+      
+
+
+
   end subroutine initarray
   subroutine get_namelists(filein)
  
@@ -319,8 +345,8 @@ contains
          maxdpsij, Jomax, Joloc, Jow, maxiterF, istability, ibscur, nchy, ijBSmodel, &
          Vloop0, Vloop, ifindmagaxis, epsmag, dpsistartmag, iprintEFIT, &
          dense0, denseb, rn1de, rn2de, te0, teb, rn1te, rn2te, ti0, tib, rn1ti, rn2ti, npsi, &
-         itrinity, ntpsi, nttin, dpsistartnchq, isplch, iptable, irho, iqconstraint, iguessRmap0, &
-         pgmax, pgloc, pgw, iremapon, iogyropsi
+         itrinity,itotalpi, ntpsi, nttin, dpsistartnchq, isplch, iptable, irho, iqconstraint, iguessRmap0, &
+         pgmax, pgloc, pgw, iremapon, iogyropsi, nhamada, ihamada, nhpsi, tpsi1,tpsi2,iboozer,nflux
 
     ! NAMELIST characteristics
 	! need the delim, else some implementations will not surround
@@ -566,24 +592,74 @@ contains
      implicit none
      integer :: i,j
 
+    if (itotalpi.eq.1) then 
+      ntpsi=ntpsi*2-1
+    end if
+
      allocate (tpsi(ntpsi),ttin(nttin), trho(ntpsi),dpsidrho(ntpsi))
      
      do i=1,ntpsi
 !        tpsi(i)=1.0d0-real(i)/(ntpsi+1)
 !        tpsi(i)=1.0d0-real(2*i-1)/(2*ntpsi)
         trho(i)=1.0d0/(ntpsi-1)*(i-1)
+        !tpsi(i) = 1.0d0 - ((tpsi2-tpsi1)/(ntpsi-1)*dble(i-1)+tpsi1) !wonjun
+
 !        trho(i)=1.0d0/(ntpsi)*real(i) !JPL:remove psi=0
      end do
      do j=1,nttin
-        ttin(j)=8.0d0*datan(1.0d0)/nttin*(j-1)             
+        ttin(j)=8.0d0*datan(1.0d0)/nttin*(j-1)     
      end do
+    
 
      allocate (gradpar(ntpsi*nttin),btot(ntpsi*nttin),bpol(ntpsi*nttin))
      allocate (Rtrin(ntpsi*nttin),Ztrin(ntpsi*nttin),gbdrift(ntpsi*nttin), gbdrift0(ntpsi*nttin))
      allocate (cvdrift(ntpsi*nttin), cvdrift0(ntpsi*nttin),shatlocal1(ntpsi*nttin))
      allocate (shatlocal2(ntpsi*nttin),shatlocal3(ntpsi*nttin))
 
+     if (ihamada.eq.1)  call allocarrayhamada
+     if (iboozer.eq.1)  call allocarrayboozer
+
    end subroutine allocarrayTrinity
+
+   subroutine allocarrayhamada
+    implicit none
+    integer :: i,j
+    integer :: n_points
+    allocate (thh(nhpsi,nhamada+1))  
+    allocate (htin(nhamada+1), hpsi(nhpsi)) 
+    !wonjun
+    n_points = nhpsi*(nhamada+1)
+    allocate(thh_1d(n_points)) 
+
+      do j=1,nhamada+1
+         htin(j)=8.0d0*datan(1.0d0)/nhamada*dble(j-1)        
+      end do
+ 
+   end subroutine allocarrayhamada
+
+   subroutine allocarrayboozer
+    implicit none
+    integer :: i,j
+    integer :: n_points
+    real *8 psiichnt(ntpsi),spxbt(ntpsi*ntpsi),spdeft(ntpsi)
+    real *8 spbxt(ntpsi*ntpsi),cftmnt(ntpsi*ntpsi)
+    allocate (thf(ntpsi,nflux+1))
+    allocate (thunif(ntpsi,nflux+1))
+    allocate (ftin(nflux+1)) 
+
+    ! for make flux_theta, input -> ftin.
+      do j=1,nflux+1
+         ftin(j)=8.0d0*datan(1.0d0)/nflux*dble(j-1)  
+      end do
+
+    ! for change ntpi as chev grid.
+     call chsetupq(ntpsi, psiichnt, cftmnt, spbxt, spxbt, spdeft)
+      do i=1,ntpsi
+        tpsi(i)=1.0d0 -(tpsi1+(tpsi2-tpsi1)*( 1.0d0-psiichnt(i) ) )
+      end do
+      write(*,*) 'hello tpsibozoer', tpsi
+
+   end subroutine allocarrayboozer
 
   subroutine allocarray2
 
@@ -595,7 +671,7 @@ contains
     allocate (dWdZ2(nt2+1))
     allocate (dWdZZ2(nt2+1))
   
-end subroutine allocarray2
+  end subroutine allocarray2
 
   subroutine allocarray3
 
@@ -626,6 +702,7 @@ end subroutine allocarray2
     allocate (fpolch(nchq),shat(nchq),chcoeffpp(nchq),chcoeffpp0(nchq),chcoeffff(nchq)) 
     allocate (curpar(nchq), ptfprimch(nchq), ptflowch(nchq),chcoeffprho(nchq),chcoefff2rho(nchq))
     allocate (chcoeffp(nchq), presch(nchq), rhoch(nchq),dpsiidrhoch(nchq), chcoefftf(nchq))
+    allocate (jac2D(nchq,ksamp2+1))
 
     nchq0=nchq
     allocate (qpsich0(nchq0), jpsich0(nchq0),fpolch0(nchq0), pprimch0(nchq0))

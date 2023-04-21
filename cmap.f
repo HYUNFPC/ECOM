@@ -1335,21 +1335,45 @@ c
         do i=1,nt2temp
            T2temp(i)=(i-1)*(2*pi/(nt2temp-1))+tin(1) 
         end do
- 
+
         ! Lagrange interpolation for 
         !epsLag=1e-3
        write(*,*), '123',mm,nt2temp
 c        nt2temp = 513
-       call IntLag(mm,tin, x, y, kLag, nt2temp, T2temp, Rt2temp, 
+       klag2=8
+
+       call IntLag(mm,tin, x, y, kLag2, nt2temp, T2temp, Rt2temp, 
      1      Zt2temp,  dRt2temp, dZt2temp, epsLag)
+
        write(*,*), '456, nnt',nt2temp
        write(*,*), '456, nnt',dxdz2(1:nt2temp)
-       call IntLag(mm,tin, dxdz, dydz, kLag, nt2temp, T2temp, dxdz2, 
+       call IntLag(mm,tin, dxdz, dydz, kLag2, nt2temp, T2temp, dxdz2, 
      1      dydz2,  ddxdzdt2, ddydzdt2, epsLag)
+
+       indd=23
+       open(indd, file='intlagout', status='unknown')
+       write(indd,*) tin(1:mm)
+       write(indd,*) dxdz(1:mm)
+       write(indd,*) dydz(1:mm)
+       write(indd,*) T2temp(1:nt2temp)
+       write(indd,*) dxdz2(1:nt2temp)
+       write(indd,*) dydz2(1:nt2temp)
+       close(indd)
+       open(indd, file='intlagout1', status='unknown')
+       write(indd,*) tin(1:mm)
+       write(indd,*) x(1:mm)
+       write(indd,*) y(1:mm)
+       write(indd,*) T2temp(1:nt2temp)
+       write(indd,*) Rt2temp(1:nt2temp)
+       write(indd,*) Zt2temp(1:nt2temp)
+       close(indd)
+
 c       write(*,*), '789, nnt',nt2temp
 c       write(*,*), '456, nnt',dxdzz2(1:nt2)
-       call IntLag(mm,tin, dxdzz, dydzz, kLag, nt2temp, T2temp, dxdzz2, 
+       call IntLag(mm,tin, dxdzz, dydzz, kLag2, nt2temp, T2temp, dxdzz2, 
      1      dydzz2,  ddxdzzdt2, ddydzzdt2, epsLag)
+
+
 c       write(*,*), '789, nnt',nt2temp
 
        if (iprintmap.eq.1) then

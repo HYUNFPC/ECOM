@@ -188,7 +188,7 @@ c               end if
             end do
             close(unitf)
 
-            call qsortinc(nin,thin(1:nin),isort(1:nin))  
+            call qsortinc2(nin,thin(1:nin),isort(1:nin))  
             do i=1, nin
                Rintemp(i)=Rin(isort(i))
                Zintemp(i)=Zin(isort(i))
@@ -204,8 +204,8 @@ c            nint=400
             do i=1,nint+1
                thint(i)=2.0d0*pi*(i-1)/nint+thin(1)
             end do
-            kLag2=8
-            call IntLag(nin+1,thin,Rin,Zin,kLag,nint+1,thint,
+            kLag2=4
+            call IntLag(nin+1,thin,Rin,Zin,kLag2,nint+1,thint,
      1           Rint,Zint,dRint, dZint, epsLag)
         
             Rmax=Rint(1)
@@ -220,7 +220,7 @@ c            nint=400
             do i=2,nint+1
                thintr(1:kchebr)=thint(i-1)
      1              +(thint(i)-thint(i-1))*psiichr(1:kchebr)
-               call IntLag(nin+1,thin,Rin,Zin,kLag,kchebr,thintr,
+               call IntLag(nin+1,thin,Rin,Zin,kLag2,kchebr,thintr,
      1              Rintr,Zintr,dRintr, dZintr, epsLag)
                dl(1:kchebr)=dsqrt(dRintr(1:kchebr)**2
      1              +dZintr(1:kchebr)**2)
@@ -240,7 +240,7 @@ c     call chftransq(chcoeff,dl,kchebr,cftmr)
 
             if (isymud.eq.1) then !assymed up-down symmetry
                nt1half=nt1/2
-               call IntLag(nint+1,Tint,Rint,Zint,kLag,nt1half+1, T1,
+               call IntLag(nint+1,Tint,Rint,Zint,kLag2,nt1half+1, T1,
      1              Rt1,Zt1,dRt1, dZt1, epsLag) 
                dRt1(1)=0.0d0 
                dRt1(nt1half+1)=0.0d0
@@ -258,7 +258,7 @@ c     call chftransq(chcoeff,dl,kchebr,cftmr)
                end do
                
             else !assymed up-down asymmetry
-               call IntLag(nint+1,Tint,Rint,Zint,kLag,nt1+1,T1,
+               call IntLag(nint+1,Tint,Rint,Zint,kLag2,nt1+1,T1,
      1              Rt1,Zt1,dRt1, dZt1, epsLag)
             end if
          
@@ -268,6 +268,17 @@ c     call chftransq(chcoeff,dl,kchebr,cftmr)
                write(7,*) Rin(i), Zin(i), Tin(i)
             end do
             close(7)
+
+
+            indd=23
+            open(indd, file='intlagout2', status='unknown')
+            write(indd,*) Tint(1:nint+1)
+            write(indd,*) Rint(1:nint+1)
+            write(indd,*) Zint(1:nint+1)
+            write(indd,*) T1(1:nt1+1)
+            write(indd,*) Rt1(1:nt1+1)
+            write(indd,*) Zt1(1:nt1+1)
+            close(indd)
 
          case (3)  !EFIT
         
@@ -292,7 +303,7 @@ c     call chftransq(chcoeff,dl,kchebr,cftmr)
             end do
 c            write(*,*) 'thin',thin(1:nin+1)
 
-            call qsortinc(nin,thin(1:nin),isort(1:nin))  
+            call qsortinc2(nin,thin(1:nin),isort(1:nin))  
             do i=1, nin
                Rintemp(i)=Rin(isort(i))
                Zintemp(i)=Zin(isort(i))
@@ -309,8 +320,9 @@ c            write(*,*) 'thin',thin(1:nin+1)
                thint(i)=2*pi*(i-1)/nint+thin(1)
             end do
 
-            kLag2=8
-            call IntLag(nin+1,thin,Rin,Zin,kLag,nint+1,thint,
+            kLag2=4
+            
+            call IntLag(nin+1,thin,Rin,Zin,kLag2,nint+1,thint,
      1           Rint,Zint,dRint, dZint, epsLag)
 
             Rmax=Rint(1)
@@ -325,7 +337,7 @@ c            write(*,*) 'thin',thin(1:nin+1)
             do i=2,nint+1
                thintr(1:kchebr)=thint(i-1)
      1              +(thint(i)-thint(i-1))*psiichr(1:kchebr)
-               call IntLag(nin+1,thin,Rin,Zin,kLag,kchebr,thintr,
+               call IntLag(nin+1,thin,Rin,Zin,kLag2,kchebr,thintr,
      1              Rintr,Zintr,dRintr, dZintr, epsLag)
                dl(1:kchebr)=dsqrt(dRintr(1:kchebr)**2
      1              +dZintr(1:kchebr)**2)
@@ -336,6 +348,7 @@ c            write(*,*) 'thin',thin(1:nin+1)
                dtint= dtint/2.0d0*(thint(i)-thint(i-1))
                Tint(i)=Tint(i-1)+dtint
             end do
+            
 
             dt1=Tint(nint+1)/nt1
             do i=1,nt1+1
@@ -343,8 +356,18 @@ c            write(*,*) 'thin',thin(1:nin+1)
             end do
 
     
-            call IntLag(nint+1,Tint,Rint,Zint,kLag,nt1+1,T1,
+            call IntLag(nint+1,Tint,Rint,Zint,kLag2,nt1+1,T1,
      1           Rt1,Zt1,dRt1, dZt1, epsLag)
+
+       indd=23
+       open(indd, file='intlagout2', status='unknown')
+       write(indd,*) Tint(1:nint+1)
+       write(indd,*) Rint(1:nint+1)
+       write(indd,*) Zint(1:nint+1)
+       write(indd,*) T1(1:nt1+1)
+       write(indd,*) Rt1(1:nt1+1)
+       write(indd,*) Zt1(1:nt1+1)
+       close(indd)
 
         
          
@@ -764,6 +787,27 @@ c
  2023 format (i5,i5)
  2024 format (i5,e16.9,i5)
       close(neqdsk)
+
+
+      do i=1,nw
+         if (fpol(i).gt.0) then
+            fpol(i)=-fpol(i)
+         end if
+      end do
+
+      if (simag.gt.0) then
+         simag=-simag
+         sibry=-sibry
+         do i=1,nw
+         pprime(i)=-pprime(i)
+         ffprim(i)=-ffprim(i)
+         end do
+      end if
+
+      if (current.gt.0) then
+         current=-current
+      end if
+
  
       nefito=11
       file_out='readEfit.out'
@@ -841,8 +885,20 @@ c
             Rin(i)=rbbbs(i)
             Zin(i)=zbbbs(i) 
          end do
-      end if
 
+         iii=13
+         open(iii, file='KSTAR.dat', status='unknown')
+         write(iii,*) 'n'
+         write(iii,*) nin
+         write(iii,*) 'R0,Z0'
+         write(iii,*) R0,Z0
+         write(iii,*) 'R(j),Z(j)'
+         do j=1,nin+1
+         write(iii,*) Rin(j),Zin(j)
+         end do
+         close(iii)
+   
+      end if
       return
       end
       

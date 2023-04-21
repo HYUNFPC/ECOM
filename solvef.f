@@ -30,7 +30,7 @@
       use arrays, only:  dpsidr, dpsidrr, u, ur, uth, urr, urt, utt
       use arrays, only: q0, F0, p0, pin, pout, FF0, FFin, FFout
       use arrays, only: iftype,itftype, mach, ptf0, ptfin, ptfout
-      use arrays, only: fiter, ftime, fout, isplch, iptable
+      use arrays, only: fiter, ftime, fout, isplch, iptable,fiter8
       use arrays, only: chcoeffp, presch, chcoefftf, ptfprimch, ptflowch
       use arrays, only: ptflowEF, btflow, ctflow, dtflow, iscale
       use arrays, only: ptfmax, ptfloc, ptfw
@@ -61,6 +61,7 @@
       ntheta=nt2
 
       korder = kcheb
+
       !--------------------------------------------------
       if (iiter.eq.1) then !initial condition for the first iteration
          
@@ -321,11 +322,11 @@
 
          do inext = 1, ntot
             psin=1-psii(inext)
-	    if (psin.lt.0.0d0) then
-		psin=0.0d0
-	    else if (psin.gt.1.0d0) then
-		psin=1.0d0
-	    end if
+	         if (psin.lt.0.0d0) then
+		         psin=0.0d0
+	         else if (psin.gt.1.0d0) then
+		         psin=1.0d0
+	         end if
 
             select case (iptype)
             case(0)             ! solovev solution      
@@ -477,14 +478,16 @@
      2           *(dzdw3(inext)*conjg(dzdw3(inext)))
      3           -halpha**2.0d0*psii(inext)/dsqrt(Rt3(inext))
       end do
+      !write(*,*)'==f',f
 
       ! call the poisson solver
       ibc = 1
       call elliptic(nsub,korder,ntheta,rnd,rnd(nr+1),
      1     u,ur,uth,urr,urt,utt,f,blength,bnodes,ibc,g)
-
+      write(*,*)'bnodes', bnodes
+      write(*,*) 'blength', blength
       psif(1:ntot) =u(1:ntot)*sqrt(Rt3(1:ntot))
-     
+      
       maxpsi = 0.0d0
       do inext = 1, ntot
          if (abs(psif(inext)) > maxpsi) then
@@ -518,7 +521,7 @@
          Zmaxis=Zt3m
 
          dist2=(Rmaxis-Rmap0)**2+(Zmaxis-Zmap0)**2
-       else ! magnetic axis on the grid
+      else ! magnetic axis on the grid
          Rmaxpsi=Rt3(inext_maxpsi)
          Zmaxpsi=Zt3(inext_maxpsi)
          Rmaxis=Rmaxpsi
@@ -527,6 +530,19 @@
          dist2=(Rmaxpsi-Rmap0)**2+(Zmaxpsi-Zmap0)**2
        
       end if
+
+
+      write(fiter8,*) rndm,tndm,psim
+      do j=1, ntheta
+         do i=1, nr
+            inext = i + (j-1)*nr
+            write(fiter8,*) rnd(i), tnd(j), psif(inext)
+         enddo
+      enddo
+
+
+
+
       psif(1:ntot) = psif(1:ntot)/maxpsi
       lambda = lambda/maxpsi
 
@@ -560,9 +576,9 @@
       end if
 
       if (iremap.eq.1) then
-         Rmap0 = Rmaxis   !
+         Rmap0 = Rmaxis  !-0.1*diffpsich 
 !       JunHsong: remove the shift by findmagaxis algorithm corrections
-!        -0.1*diffpsich !Rmaxpsi: put some distance to find magaxis routine
+!        !Rmaxpsi: put some distance to find magaxis routine
          Zmap0 = Zmaxis         !Zmaxpsi
       end if
 
